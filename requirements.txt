@@ -3,12 +3,12 @@
 
 PyQt5>=5.15.0
 faster-whisper>=1.0.0
-ctranslate2>=4.0.0
+ctranslate2==4.4.0
 tokenizers>=0.13.0
 huggingface-hub>=0.21.0
+onnxruntime>=1.14.0
 
-# Note: If you encounter build errors with 'av' package:
-# 1. Free up disk space (you need at least 1-2GB free)
-# 2. Consider using Python 3.11 or 3.12 instead of 3.14
-# 3. On Windows, you may need Microsoft Visual C++ Build Tools
-
+# GPU SUPPORT REQUIREMENTS (Manual Installation Needed):
+# 1. NVIDIA CUDA Toolkit 11.8 (System Driver)
+# 2. NVIDIA cuDNN for CUDA 11.x (Copy DLLs to CUDA bin folder)
+# Without these, the app will crash in GPU mode.

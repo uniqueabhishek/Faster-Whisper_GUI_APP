@@ -1,0 +1,105 @@
+[2025-12-03 00:20:50,135] [INFO] Application starting...
+[2025-12-03 00:21:47,859] [INFO] Model directory selected: D:\D Desktop\WhisperModel\model\faster-whisper-medium
+[2025-12-03 00:22:03,288] [INFO] Model path used: D:\D Desktop\WhisperModel\model\faster-whisper-medium
+[2025-12-03 00:22:03,288] [INFO] Loading local offline model: D:\D Desktop\WhisperModel\model\faster-whisper-medium
+[2025-12-03 00:22:03,288] [INFO] Device: cpu, Compute type: int8
+[2025-12-03 00:22:06,144] [INFO] === TRANSCRIBE_FILE CALLED ===
+[2025-12-03 00:22:06,145] [INFO] Input: D:\AOL\Contradictions of the Mind.mp4
+[2025-12-03 00:22:06,145] [INFO] Output: D:\AOL\Contradictions of the Mind.txt
+[2025-12-03 00:22:06,146] [INFO] Calling model.transcribe() with beam_size=5, vad_filter=True...
+[2025-12-03 00:22:08,905] [INFO] Processing audio with duration 40:07.027
+[2025-12-03 00:22:09,023] [ERROR] Error processing Contradictions of the Mind.mp4: Required inputs (['sr']) are missing from input feed (['input', 'h', 'c']).
+[2025-12-03 00:22:09,023] [INFO] === TRANSCRIBE_FILE CALLED ===
+[2025-12-03 00:22:09,023] [INFO] Input: D:\AOL\Learn chanting with Bhanumathi Narasimhan.webm
+[2025-12-03 00:22:09,023] [INFO] Output: D:\AOL\Learn chanting with Bhanumathi Narasimhan.txt
+[2025-12-03 00:22:09,023] [INFO] Calling model.transcribe() with beam_size=5, vad_filter=True...
+[2025-12-03 00:22:09,023] [ERROR] Traceback (most recent call last):
+  File "d:\D Desktop\my chatgpt faster whisper gui app\Faster-Whisper_GUI_APP\workers.py", line 123, in _job
+    result = self._transcriber.transcribe_file(
+  File "d:\D Desktop\my chatgpt faster whisper gui app\Faster-Whisper_GUI_APP\transcriber.py", line 145, in transcribe_file
+    beam_size=bs,
+  File "d:\D Desktop\my chatgpt faster whisper gui app\Faster-Whisper_GUI_APP\transcriber.py", line 126, in transcribe_file
+    raise FileNotFoundError(f"Input file not found: {input_path}")
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\faster_whisper\transcribe.py", line 890, in transcribe
+    speech_chunks = get_speech_timestamps(audio, vad_parameters)
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\faster_whisper\vad.py", line 89, in get_speech_timestamps
+    speech_probs = model(padded_audio)
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\faster_whisper\vad.py", line 343, in __call__
+    output, h, c = self.session.run(
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\onnxruntime\capi\onnxruntime_inference_collection.py", line 283, in run
+    self._validate_input(list(input_feed.keys()))
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\onnxruntime\capi\onnxruntime_inference_collection.py", line 265, in _validate_input
+    raise ValueError(
+ValueError: Required inputs (['sr']) are missing from input feed (['input', 'h', 'c']).
+
+[2025-12-03 00:22:10,332] [INFO] Processing audio with duration 07:50.169
+[2025-12-03 00:22:10,379] [ERROR] Error processing Learn chanting with Bhanumathi Narasimhan.webm: Required inputs (['sr']) are missing from input feed (['input', 'h', 'c']).
+[2025-12-03 00:22:10,380] [INFO] === TRANSCRIBE_FILE CALLED ===
+[2025-12-03 00:22:10,381] [INFO] Input: D:\AOL\Learn with Bhanumathi Narasimhan.mp4
+[2025-12-03 00:22:10,381] [INFO] Output: D:\AOL\Learn with Bhanumathi Narasimhan.txt
+[2025-12-03 00:22:10,381] [ERROR] Traceback (most recent call last):
+  File "d:\D Desktop\my chatgpt faster whisper gui app\Faster-Whisper_GUI_APP\workers.py", line 123, in _job
+    result = self._transcriber.transcribe_file(
+  File "d:\D Desktop\my chatgpt faster whisper gui app\Faster-Whisper_GUI_APP\transcriber.py", line 145, in transcribe_file
+    beam_size=bs,
+  File "d:\D Desktop\my chatgpt faster whisper gui app\Faster-Whisper_GUI_APP\transcriber.py", line 126, in transcribe_file
+    raise FileNotFoundError(f"Input file not found: {input_path}")
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\faster_whisper\transcribe.py", line 890, in transcribe
+    speech_chunks = get_speech_timestamps(audio, vad_parameters)
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\faster_whisper\vad.py", line 89, in get_speech_timestamps
+    speech_probs = model(padded_audio)
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\faster_whisper\vad.py", line 343, in __call__
+    output, h, c = self.session.run(
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\onnxruntime\capi\onnxruntime_inference_collection.py", line 283, in run
+    self._validate_input(list(input_feed.keys()))
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\onnxruntime\capi\onnxruntime_inference_collection.py", line 265, in _validate_input
+    raise ValueError(
+ValueError: Required inputs (['sr']) are missing from input feed (['input', 'h', 'c']).
+
+[2025-12-03 00:22:10,382] [INFO] Calling model.transcribe() with beam_size=5, vad_filter=True...
+[2025-12-03 00:22:11,066] [INFO] Processing audio with duration 09:19.020
+[2025-12-03 00:22:11,118] [ERROR] Error processing Learn with Bhanumathi Narasimhan.mp4: Required inputs (['sr']) are missing from input feed (['input', 'h', 'c']).
+[2025-12-03 00:22:11,118] [INFO] === TRANSCRIBE_FILE CALLED ===
+[2025-12-03 00:22:11,118] [INFO] Input: D:\AOL\pazhani-aandavar-bhavani-varukirar-by-melarkode-vaithyanatha-bhagavathar.mp3
+[2025-12-03 00:22:11,118] [INFO] Output: D:\AOL\pazhani-aandavar-bhavani-varukirar-by-melarkode-vaithyanatha-bhagavathar.txt
+[2025-12-03 00:22:11,118] [ERROR] Traceback (most recent call last):
+  File "d:\D Desktop\my chatgpt faster whisper gui app\Faster-Whisper_GUI_APP\workers.py", line 123, in _job
+    result = self._transcriber.transcribe_file(
+  File "d:\D Desktop\my chatgpt faster whisper gui app\Faster-Whisper_GUI_APP\transcriber.py", line 145, in transcribe_file
+    beam_size=bs,
+  File "d:\D Desktop\my chatgpt faster whisper gui app\Faster-Whisper_GUI_APP\transcriber.py", line 126, in transcribe_file
+    raise FileNotFoundError(f"Input file not found: {input_path}")
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\faster_whisper\transcribe.py", line 890, in transcribe
+    speech_chunks = get_speech_timestamps(audio, vad_parameters)
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\faster_whisper\vad.py", line 89, in get_speech_timestamps
+    speech_probs = model(padded_audio)
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\faster_whisper\vad.py", line 343, in __call__
+    output, h, c = self.session.run(
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\onnxruntime\capi\onnxruntime_inference_collection.py", line 283, in run
+    self._validate_input(list(input_feed.keys()))
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\onnxruntime\capi\onnxruntime_inference_collection.py", line 265, in _validate_input
+    raise ValueError(
+ValueError: Required inputs (['sr']) are missing from input feed (['input', 'h', 'c']).
+
+[2025-12-03 00:22:11,118] [INFO] Calling model.transcribe() with beam_size=5, vad_filter=True...
+[2025-12-03 00:22:11,740] [INFO] Processing audio with duration 07:10.704
+[2025-12-03 00:22:11,788] [ERROR] Error processing pazhani-aandavar-bhavani-varukirar-by-melarkode-vaithyanatha-bhagavathar.mp3: Required inputs (['sr']) are missing from input feed (['input', 'h', 'c']).
+[2025-12-03 00:22:11,789] [ERROR] Traceback (most recent call last):
+  File "d:\D Desktop\my chatgpt faster whisper gui app\Faster-Whisper_GUI_APP\workers.py", line 123, in _job
+    result = self._transcriber.transcribe_file(
+  File "d:\D Desktop\my chatgpt faster whisper gui app\Faster-Whisper_GUI_APP\transcriber.py", line 145, in transcribe_file
+    beam_size=bs,
+  File "d:\D Desktop\my chatgpt faster whisper gui app\Faster-Whisper_GUI_APP\transcriber.py", line 126, in transcribe_file
+    raise FileNotFoundError(f"Input file not found: {input_path}")
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\faster_whisper\transcribe.py", line 890, in transcribe
+    speech_chunks = get_speech_timestamps(audio, vad_parameters)
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\faster_whisper\vad.py", line 89, in get_speech_timestamps
+    speech_probs = model(padded_audio)
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\faster_whisper\vad.py", line 343, in __call__
+    output, h, c = self.session.run(
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\onnxruntime\capi\onnxruntime_inference_collection.py", line 283, in run
+    self._validate_input(list(input_feed.keys()))
+  File "C:\Users\abhis\AppData\Local\Programs\Python\Python310\lib\site-packages\onnxruntime\capi\onnxruntime_inference_collection.py", line 265, in _validate_input
+    raise ValueError(
+ValueError: Required inputs (['sr']) are missing from input feed (['input', 'h', 'c']).
+

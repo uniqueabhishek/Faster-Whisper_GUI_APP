@@ -6,12 +6,30 @@ from faster_whisper import WhisperModel
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Callable, Iterable, List, Optional
 
-<< << << < HEAD
 try:
     from faster_whisper import WhisperModel
+    import faster_whisper.vad
+
     LOGGER = logging.getLogger(__name__)
+
+    import sys
+    # Monkey patch VAD model path for offline use
+    if getattr(sys, 'frozen', False):
+        # If running as a bundled exe, look in the temporary folder
+        _VAD_PATH = Path(sys._MEIPASS) / "assets" / "silero_vad.onnx"
+    else:
+        _VAD_PATH = Path(__file__).parent / "assets" / "silero_vad.onnx"
+    if _VAD_PATH.exists():
+        def _get_local_vad_model():
+            return faster_whisper.vad.SileroVADModel(str(_VAD_PATH))
+
+        # Override the function that returns the model path
+        if hasattr(faster_whisper.vad, "get_vad_model"):
+            faster_whisper.vad.get_vad_model = _get_local_vad_model
+            LOGGER.info("Using local VAD model at: %s", _VAD_PATH)
+
     LOGGER.info("faster_whisper imported successfully")
 except ImportError as e:
     LOGGER = logging.getLogger(__name__)
@@ -24,23 +42,13 @@ try:
     LOGGER.info("ctranslate2 version: %s", ctranslate2.__version__)
 except ImportError:
     LOGGER.warning("ctranslate2 not found - this may cause issues")
-== == == =
-
-LOGGER = logging.getLogger(__name__)
->>>>>> > 4c9e366 (fixed 7 + issues in your app: )
 
 
 @dataclass(frozen=True)
 class TranscriptionConfig:
     model_name: str
-    device: str = "auto"
-
-
-<< << << < HEAD
-    compute_type: str = "default"
-== == == =
-    compute_type: str = "int8_float16"
->>>>>> > 4c9e366 (fixed 7 + issues in your app: )
+    device: str = "cpu"
+    compute_type: str = "int8"
     language: Optional[str] = None
     beam_size: int = 5
     best_of: int = 5
@@ -74,13 +82,7 @@ class Transcriber:
         self._model: WhisperModel = self._load_model()
 
     def _load_model(self) -> WhisperModel:
-
-
-<< << << < HEAD
         LOGGER.info("Model path used: %s", self._config.model_name)
-== == == =
-        print("MODEL PATH USED:", self._config.model_name)
->>>>>> > 4c9e366 (fixed 7 + issues in your app: )
         model_path = Path(self._config.model_name)
 
         if not model_path.exists() or not model_path.is_dir():
@@ -95,50 +97,27 @@ class Transcriber:
             )
 
         LOGGER.info("Loading local offline model: %s", model_path)
-<< << << < HEAD
         LOGGER.info("Device: %s, Compute type: %s",
                     self._config.device, self._config.compute_type)
 
         try:
-            # Try with explicit cpu device first as it's most compatible
-            LOGGER.info("Attempting to load model with CPU device...")
-            model = WhisperModel(
+            return WhisperModel(
                 str(model_path),
-                device="cpu",
-                compute_type="int8",
+                device=self._config.device,
+                compute_type=self._config.compute_type,
             )
-            LOGGER.info("Model loaded successfully with CPU/int8")
-            return model
         except Exception as e:
-            LOGGER.error("Failed to load with CPU/int8: %s", str(e))
-            LOGGER.info("Trying with default settings...")
-            try:
-                model = WhisperModel(
-                    str(model_path),
-                    device="cpu",
-                )
-                LOGGER.info("Model loaded successfully with CPU/default")
-                return model
-            except Exception as e2:
-                LOGGER.error("Failed to load with CPU/default: %s", str(e2))
-                raise RuntimeError(
-                    f"Failed to load model. Errors:\n1. {str(e)}\n2. {str(e2)}")
-== == == =
-
-        return WhisperModel(
-            str(model_path),
-            device=self._config.device,
-            compute_type=self._config.compute_type,
-            download=False,
-        )
->>>>>> > 4c9e366 (fixed 7 + issues in your app: )
+            LOGGER.error("Failed to load model: %s", str(e))
+            raise
 
     def transcribe_file(
         self,
         input_path: Path,
         output_path: Optional[Path] = None,
+        progress_callback: Optional[Callable[[int], None]] = None,
+        beam_size: Optional[int] = None,
+        vad_filter: bool = False,
     ) -> TranscriptionResult:
-<< << << < HEAD
         LOGGER.info("=== TRANSCRIBE_FILE CALLED ===")
         LOGGER.info("Input: %s", input_path)
         LOGGER.info("Output: %s", output_path)
@@ -146,52 +125,59 @@ class Transcriber:
         if not input_path.is_file():
             raise FileNotFoundError(f"Input file not found: {input_path}")
 
-        LOGGER.info("Calling model.transcribe()...")
-== == == =
-        if not input_path.is_file():
-            raise FileNotFoundError(f"Input file not found: {input_path}")
-
->>>>>> > 4c9e366 (fixed 7 + issues in your app: )
-        segments, info = self._model.transcribe(
-            str(input_path),
-            language=self._config.language,
-            beam_size=self._config.beam_size,
-            best_of=self._config.best_of,
-            vad_filter=True,
-        )
-<< << << < HEAD
+        bs = beam_size if beam_size is not None else self._config.beam_size
+        LOGGER.info("Calling model.transcribe() with beam_size=%d, vad_filter=%s...", bs, vad_filter)
+        try:
+            segments, info = self._model.transcribe(
+                str(input_path),
+                language=self._config.language,
+                beam_size=bs,
+                best_of=self._config.best_of,
+                vad_filter=vad_filter,
+            )
+        except Exception as e:
+            # Fallback for VAD errors (e.g. invalid model file or missing dependencies)
+            if vad_filter and ("ONNXRuntimeError" in str(e) or "INVALID_PROTOBUF" in str(e)):
+                LOGGER.warning(f"VAD failed to load ({e}). Retrying with VAD disabled.")
+                segments, info = self._model.transcribe(
+                    str(input_path),
+                    language=self._config.language,
+                    beam_size=bs,
+                    best_of=self._config.best_of,
+                    vad_filter=False,
+                )
+            else:
+                raise e
         LOGGER.info("Model.transcribe() completed")
 
-        LOGGER.info("Processing segments...")
-== == == =
+        total_duration = info.duration
+        LOGGER.info("Audio duration: %.2fs", total_duration)
 
->>>>>> > 4c9e366 (fixed 7 + issues in your app: )
-        lines: List[str] = [
-            segment.text.strip()
-            for segment in segments
-            if getattr(segment, "text", "").strip()
-        ]
+        LOGGER.info("Processing segments...")
+        lines: List[str] = []
+
+        for segment in segments:
+            if getattr(segment, "text", "").strip():
+                lines.append(segment.text.strip())
+
+            # Update progress
+            if progress_callback and total_duration > 0:
+                current_time = segment.end
+                percent = int((current_time / total_duration) * 100)
+                progress_callback(min(percent, 100))
+
         text = "\n".join(lines)
-<< << << < HEAD
         LOGGER.info("Processed %d text lines", len(lines))
 
         resolved_output: Optional[Path] = None
         if output_path is not None:
             LOGGER.info("Saving to file...")
-== == == =
-
-        resolved_output: Optional[Path] = None
-        if output_path is not None:
->>>>>> > 4c9e366 (fixed 7 + issues in your app: )
             resolved_output = output_path
             resolved_output.parent.mkdir(parents=True, exist_ok=True)
             resolved_output.write_text(text, encoding="utf-8")
             LOGGER.info("Saved transcription to %s", resolved_output)
 
-<< << << < HEAD
         LOGGER.info("Creating result object...")
-== == == =
->>>>>> > 4c9e366 (fixed 7 + issues in your app: )
         return TranscriptionResult(
             input_path=input_path,
             output_path=resolved_output,

@@ -22,6 +22,7 @@ EXECUTOR = ThreadPoolExecutor(max_workers=4)
 class SingleFileWorker(QThread):
     finished = pyqtSignal(object)
     failed = pyqtSignal(str)
+    progress = pyqtSignal(int)
 
     def __init__(
         self,
@@ -39,9 +40,6 @@ class SingleFileWorker(QThread):
         self._cancel = True
 
     def run(self) -> None:
-
-
-<< << << < HEAD
         LOGGER.info("=== WORKER RUN STARTED ===")
         if self._cancel:
             LOGGER.info("Worker cancelled before start")
@@ -49,17 +47,11 @@ class SingleFileWorker(QThread):
             return
         try:
             LOGGER.info("Starting transcription of: %s", self._input_path)
-== == == =
-        if self._cancel:
-            self.failed.emit("Cancelled")
-            return
-        try:
->>>>>> > 4c9e366 (fixed 7 + issues in your app: )
             result = self._transcriber.transcribe_file(
                 self._input_path,
                 output_path=self._output_path,
+                progress_callback=self.progress.emit,
             )
-<< << << < HEAD
             LOGGER.info("Transcription completed successfully")
             if self._cancel:
                 LOGGER.info("Worker cancelled after transcription")
@@ -72,13 +64,6 @@ class SingleFileWorker(QThread):
             import traceback
             error_msg = f"{str(exc)}\n\nTraceback:\n{traceback.format_exc()}"
             LOGGER.error("Transcription failed: %s", error_msg)
-=======
-            if self._cancel:
-                self.failed.emit("Cancelled")
-                return
-            self.finished.emit(result)
-        except Exception as exc:  # noqa
->>>>>>> 4c9e366 (fixed 7+ issues in your app:)
             self.failed.emit(str(exc))
 
 
@@ -92,38 +77,31 @@ class BatchWorker(QThread):
     def __init__(
         self,
         transcriber: Transcriber,
-        input_dir: Path,
-        output_dir: Path,
-        recursive: bool,
+        input_files: List[Path],
+        output_dir: Optional[Path],
+        beam_size: int = 5,
+        vad_filter: bool = False,
     ) -> None:
         super().__init__()
         self._transcriber = transcriber
-        self._input_dir = input_dir
+        self._input_files = input_files
         self._output_dir = output_dir
-        self._recursive = recursive
+        self._beam_size = beam_size
+        self._vad_filter = vad_filter
         self._cancel = False
-        self._model_lock = threading.Lock()   # ensure thread-safe model calls
+        self._model_lock = threading.Lock()
 
     def request_cancel(self) -> None:
         self._cancel = True
 
     def run(self) -> None:
-        # Collect media files
-        try:
-            media_files = list(
-                self._transcriber.iter_media_files(
-                    self._input_dir,
-                    recursive=self._recursive,
-                )
-            )
-        except Exception as exc:
-            self.failed.emit(str(exc))
-            return
-
+        media_files = self._input_files
         total = len(media_files)
         if total == 0:
             self.finished.emit([])
             return
+
+
 
         results: List[TranscriptionResult] = []
         start_time = time.time()
@@ -137,12 +115,22 @@ class BatchWorker(QThread):
             self.file_status.emit(path.name, "Processing")
             try:
                 with self._model_lock:
+                    out_path = (
+                        self._output_dir / f"{path.stem}.txt"
+                        if self._output_dir
+                        else path.with_suffix(".txt")
+                    )
                     result = self._transcriber.transcribe_file(
                         path,
-                        output_path=self._output_dir / f"{path.stem}.txt",
+                        output_path=out_path,
+                        beam_size=self._beam_size,
+                        vad_filter=self._vad_filter,
                     )
                 return result
-            except Exception:
+            except Exception as e:
+                LOGGER.error("Error processing %s: %s", path.name, str(e))
+                import traceback
+                LOGGER.error(traceback.format_exc())
                 return None
 
         # Submit all futures to global executor

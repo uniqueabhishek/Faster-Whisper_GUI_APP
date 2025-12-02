@@ -4,20 +4,20 @@ from __future__ import annotations
 
 import sys
 import logging
-<<<<<<< HEAD
 import traceback
 
-from PyQt5.QtWidgets import QApplication, QMessageBox
-=======
+# Fix for DLL load failed error: onnxruntime must be imported before PyQt5
+try:
+    import onnxruntime
+except ImportError:
+    pass
 
-from PyQt5.QtWidgets import QApplication
->>>>>>> 4c9e366 (fixed 7+ issues in your app:)
+from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from gui import MainWindow
 from workers import EXECUTOR
 
 
-<<<<<<< HEAD
 def exception_hook(exctype, value, tb):
     """Global exception handler to catch unhandled exceptions."""
     error_msg = ''.join(traceback.format_exception(exctype, value, tb))
@@ -61,20 +61,6 @@ def main() -> None:
         logging.exception("Fatal error in application")
         print(f"\n\nFATAL ERROR:\n{traceback.format_exc()}")
         input("Press Enter to exit...")
-=======
-def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="[%(levelname)s] %(message)s",
-    )
-
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-
-    try:
-        sys.exit(app.exec())
->>>>>>> 4c9e366 (fixed 7+ issues in your app:)
     finally:
         # Ensure all worker threads terminate cleanly
         EXECUTOR.shutdown(wait=False)
