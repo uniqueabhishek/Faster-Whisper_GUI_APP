@@ -516,17 +516,25 @@ class MainWindow(QMainWindow):
         LOGGER.info("Model directory selected: %s", model_dir)
 
     def _lazy_load_model(self) -> bool:
+        # Parse compute type
+        ctype_text = self.compute_combo.currentText()
+        compute_type = "float32" if "float32" in ctype_text else "int8"
+        model_path = self.model_edit.text().strip()
+
+        # Check if we need to reload
         if self._transcriber is not None:
-            return True
+            current_config = self._transcriber._config
+            if (current_config.model_name == model_path and
+                current_config.compute_type == compute_type):
+                return True
+
+            LOGGER.info("Configuration changed. Reloading model...")
+            self._transcriber = None
 
         self.statusBar().showMessage("Loading model...")
         try:
-            # Parse compute type
-            ctype_text = self.compute_combo.currentText()
-            compute_type = "float32" if "float32" in ctype_text else "int8"
-
             config = TranscriptionConfig(
-                model_name=self.model_edit.text().strip(),
+                model_name=model_path,
                 language=None,
                 compute_type=compute_type,
             )
