@@ -8,6 +8,39 @@ Colors:
 - Border: #404040
 """
 
+import ctypes
+from ctypes import wintypes
+
+def apply_dark_title_bar(window_handle):
+    """
+    Apply Windows Immersive Dark Mode to the title bar.
+    Requires Windows 10 (Build 1903+) or Windows 11.
+    """
+    try:
+        # DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 10 2004+ / Windows 11)
+        DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+        set_window_attribute = ctypes.windll.dwmapi.DwmSetWindowAttribute
+        get_parent = ctypes.windll.user32.GetParent
+        hwnd = window_handle
+
+        # If it's a PyQt window, we might need the underlying HWND
+        # But usually passing int(winId()) works.
+
+        rendering_policy = DWMWA_USE_IMMERSIVE_DARK_MODE
+        value = ctypes.c_int(2) # 2 = True (technically boolean, but 1 or non-zero)
+        # Actually for this attribute, TRUE (1) is needed.
+        value = ctypes.c_int(1)
+
+        set_window_attribute(
+            hwnd,
+            rendering_policy,
+            ctypes.byref(value),
+            ctypes.sizeof(value)
+        )
+    except Exception:
+        # Fail silently if not on Windows or older version
+        pass
+
 DARK_THEME_QSS = """
 /* Main Window */
 QMainWindow, QWidget {
@@ -49,6 +82,30 @@ QLineEdit:focus {
 QLineEdit:read-only {
     background-color: #262626;
     color: #9ca3af;
+}
+
+/* ComboBox */
+QComboBox {
+    background-color: #2d2d2d;
+    border: 1px solid #404040;
+    border-radius: 6px;
+    padding: 8px;
+    color: #ffffff;
+}
+QComboBox::drop-down {
+    border: none;
+}
+QComboBox::down-arrow {
+    image: url(assets/chevron_down.svg);
+    width: 12px;
+    height: 12px;
+    margin-right: 10px;
+}
+QComboBox QAbstractItemView {
+    background-color: #2d2d2d;
+    color: #ffffff;
+    selection-background-color: #3b82f6;
+    border: 1px solid #404040;
 }
 
 /* Buttons */

@@ -20,8 +20,8 @@ def download_vad():
         except Exception as e:
             LOGGER.warning(f"Could not remove existing file: {e}")
 
-    # Hugging Face Mirror
-    url = "https://huggingface.co/csukuangfj/silero-vad/resolve/main/silero_vad.onnx"
+    # Silero VAD v4 (compatible with installed faster_whisper)
+    url = "https://github.com/snakers4/silero-vad/raw/v4.0/files/silero_vad.onnx"
 
     LOGGER.info(f"Downloading VAD model from {url}...")
     try:
@@ -40,7 +40,7 @@ def download_vad():
 
         with urllib.request.urlopen(req, context=ctx) as response, open(VAD_PATH, 'wb') as out_file:
             data = response.read()
-            if len(data) < 1000000: # < 1MB
+            if len(data) < 500000: # < 500KB
                  # Check content
                  try:
                      content = data.decode('utf-8', errors='ignore')

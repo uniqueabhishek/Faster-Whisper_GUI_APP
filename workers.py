@@ -81,6 +81,8 @@ class BatchWorker(QThread):
         output_dir: Optional[Path],
         beam_size: int = 5,
         vad_filter: bool = False,
+        language: Optional[str] = None,
+        initial_prompt: Optional[str] = None,
     ) -> None:
         super().__init__()
         self._transcriber = transcriber
@@ -88,6 +90,8 @@ class BatchWorker(QThread):
         self._output_dir = output_dir
         self._beam_size = beam_size
         self._vad_filter = vad_filter
+        self._language = language
+        self._initial_prompt = initial_prompt
         self._cancel = False
         self._model_lock = threading.Lock()
 
@@ -125,6 +129,8 @@ class BatchWorker(QThread):
                         output_path=out_path,
                         beam_size=self._beam_size,
                         vad_filter=self._vad_filter,
+                        language=self._language,
+                        initial_prompt=self._initial_prompt,
                     )
                 return result
             except Exception as e:

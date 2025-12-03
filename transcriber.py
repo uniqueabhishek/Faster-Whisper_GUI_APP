@@ -11,24 +11,87 @@ from typing import Callable, Iterable, List, Optional
 try:
     from faster_whisper import WhisperModel
     import faster_whisper.vad
+    import faster_whisper.transcribe
 
     LOGGER = logging.getLogger(__name__)
 
     import sys
+    import os
+
     # Monkey patch VAD model path for offline use
     if getattr(sys, 'frozen', False):
         # If running as a bundled exe, look in the temporary folder
         _VAD_PATH = Path(sys._MEIPASS) / "assets" / "silero_vad.onnx"
     else:
         _VAD_PATH = Path(__file__).parent / "assets" / "silero_vad.onnx"
-    if _VAD_PATH.exists():
-        def _get_local_vad_model():
-            return faster_whisper.vad.SileroVADModel(str(_VAD_PATH))
 
-        # Override the function that returns the model path
+    LOGGER.info("Checking VAD path for patch: %s", _VAD_PATH)
+
+    if _VAD_PATH.exists():
+        import numpy as np
+        class SessionWrapper:
+            def __init__(self, session):
+                self._session = session
+                self._inputs = [i.name for i in session.get_inputs()]
+                LOGGER.info("VAD Model inputs: %s", self._inputs)
+
+            def run(self, output_names, input_feed, run_options=None):
+                # Get input audio and batch size
+                audio_input = input_feed.get('input')
+                if audio_input is None:
+                    return self._session.run(output_names, input_feed, run_options)
+
+                batch_size = audio_input.shape[0]
+
+                # 1. Inject sr if missing and required
+                if 'sr' in self._inputs and 'sr' not in input_feed:
+                    input_feed['sr'] = np.array([16000], dtype=np.int64)
+
+                # 2. Prepare h/c with correct shape (2, batch_size, 64)
+                # We use zeros because faster_whisper uses context-based batching
+                # and likely expects stateless processing for these chunks.
+                if 'h' in self._inputs:
+                    input_feed['h'] = np.zeros((2, batch_size, 64), dtype=np.float32)
+                if 'c' in self._inputs:
+                    input_feed['c'] = np.zeros((2, batch_size, 64), dtype=np.float32)
+
+                # 3. Run session
+                outputs = self._session.run(output_names, input_feed, run_options)
+
+                # 4. Return dummy state to satisfy faster_whisper loop
+                # It expects (1, 1, 128) to pass to the next iteration (which we will ignore/reset anyway)
+                if len(outputs) == 3:
+                    prob, _, _ = outputs
+                    dummy_state = np.zeros((1, 1, 128), dtype=np.float32)
+                    return [prob, dummy_state, dummy_state]
+
+                return outputs
+
+            def get_inputs(self):
+                return self._session.get_inputs()
+
+            def get_outputs(self):
+                return self._session.get_outputs()
+
+        def _get_local_vad_model():
+            LOGGER.info("Instantiating local VAD model from: %s", _VAD_PATH)
+            model = faster_whisper.vad.SileroVADModel(str(_VAD_PATH))
+            # Wrap the session to inject 'sr' if needed
+            model.session = SessionWrapper(model.session)
+            return model
+
+        # Patch faster_whisper.vad.get_vad_model
         if hasattr(faster_whisper.vad, "get_vad_model"):
             faster_whisper.vad.get_vad_model = _get_local_vad_model
-            LOGGER.info("Using local VAD model at: %s", _VAD_PATH)
+            LOGGER.info("Patched faster_whisper.vad.get_vad_model")
+
+        # Patch faster_whisper.transcribe.get_vad_model (crucial if it was imported directly)
+        if hasattr(faster_whisper.transcribe, "get_vad_model"):
+            faster_whisper.transcribe.get_vad_model = _get_local_vad_model
+            LOGGER.info("Patched faster_whisper.transcribe.get_vad_model")
+
+    else:
+        LOGGER.warning("VAD model not found at %s. Patch skipped.", _VAD_PATH)
 
     LOGGER.info("faster_whisper imported successfully")
 except ImportError as e:
@@ -117,6 +180,8 @@ class Transcriber:
         progress_callback: Optional[Callable[[int], None]] = None,
         beam_size: Optional[int] = None,
         vad_filter: bool = False,
+        language: Optional[str] = None,
+        initial_prompt: Optional[str] = None,
     ) -> TranscriptionResult:
         LOGGER.info("=== TRANSCRIBE_FILE CALLED ===")
         LOGGER.info("Input: %s", input_path)
@@ -126,14 +191,26 @@ class Transcriber:
             raise FileNotFoundError(f"Input file not found: {input_path}")
 
         bs = beam_size if beam_size is not None else self._config.beam_size
-        LOGGER.info("Calling model.transcribe() with beam_size=%d, vad_filter=%s...", bs, vad_filter)
+        lang = language if language else self._config.language
+
+        LOGGER.info("Calling model.transcribe() with beam_size=%d, vad_filter=%s, language=%s, prompt=%s...",
+                    bs, vad_filter, lang, initial_prompt)
+        # Conservative VAD parameters to prevent cutting text
+        vad_params = dict(
+            min_silence_duration_ms=1000,
+            speech_pad_ms=400,
+            threshold=0.35,  # Lower threshold = more sensitive to speech
+        ) if vad_filter else None
+
         try:
             segments, info = self._model.transcribe(
                 str(input_path),
-                language=self._config.language,
+                language=lang,
                 beam_size=bs,
                 best_of=self._config.best_of,
                 vad_filter=vad_filter,
+                vad_parameters=vad_params,
+                initial_prompt=initial_prompt,
             )
         except Exception as e:
             # Fallback for VAD errors (e.g. invalid model file or missing dependencies)
@@ -141,10 +218,11 @@ class Transcriber:
                 LOGGER.warning(f"VAD failed to load ({e}). Retrying with VAD disabled.")
                 segments, info = self._model.transcribe(
                     str(input_path),
-                    language=self._config.language,
+                    language=lang,
                     beam_size=bs,
                     best_of=self._config.best_of,
                     vad_filter=False,
+                    initial_prompt=initial_prompt,
                 )
             else:
                 raise e

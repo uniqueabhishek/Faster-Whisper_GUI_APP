@@ -7,11 +7,12 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal, QObject, QUrl
+from PyQt5.QtCore import Qt, pyqtSignal, QObject, QUrl, QSettings
 from PyQt5.QtGui import QCursor, QDragEnterEvent, QDropEvent, QDesktopServices
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -37,7 +38,7 @@ from transcriber import (
     TranscriptionResult,
 )
 from workers import BatchWorker
-from styles import DARK_THEME_QSS
+from styles import DARK_THEME_QSS, apply_dark_title_bar
 
 LOGGER = logging.getLogger(__name__)
 
@@ -47,6 +48,20 @@ MEDIA_FILTER = (
 )
 DEFAULT_WIDTH = 1200
 DEFAULT_HEIGHT = 800
+
+LANGUAGE_MAP = {
+    "Auto Detect": "Auto",
+    "English": "en",
+    "Hindi": "hi",
+    "Japanese": "ja",
+    "Chinese": "zh",
+    "German": "de",
+    "Spanish": "es",
+    "French": "fr",
+    "Korean": "ko",
+    "Portuguese": "pt",
+    "Russian": "ru",
+}
 
 
 class LogSignal(QObject):
@@ -149,6 +164,9 @@ class MainWindow(QMainWindow):
         if app:
             app.setStyleSheet(DARK_THEME_QSS)
 
+        # Apply Windows Dark Title Bar
+        apply_dark_title_bar(int(self.winId()))
+
         self._transcriber: Optional[Transcriber] = None
         self._worker: Optional[BatchWorker] = None
 
@@ -161,10 +179,16 @@ class MainWindow(QMainWindow):
         self.progress_bar: QProgressBar
         self.log_output: QTextEdit
         self.file_status_list: QListWidget
+        self.lang_combo: QComboBox
+        self.prompt_edit: QLineEdit
 
         self._build_ui()
         self._create_status_bar()
         self._setup_logging()
+
+        # Settings
+        self.settings = QSettings("FasterWhisperGUI", "App")
+        self._load_settings()
 
         self.resize(DEFAULT_WIDTH, DEFAULT_HEIGHT)
 
@@ -249,6 +273,29 @@ class MainWindow(QMainWindow):
 
             self.fix_vad_btn.clicked.connect(_install_vc)
             model_layout.addWidget(self.fix_vad_btn)
+
+            self.fix_vad_btn.clicked.connect(_install_vc)
+            model_layout.addWidget(self.fix_vad_btn)
+
+        # Language Selection
+        lang_layout = QHBoxLayout()
+        lang_label = QLabel("Language:")
+        self.lang_combo = QComboBox()
+        self.lang_combo.addItems(list(LANGUAGE_MAP.keys()))
+        self.lang_combo.setToolTip("Select audio language (Auto = detect automatically)")
+        lang_layout.addWidget(lang_label)
+        lang_layout.addWidget(self.lang_combo)
+        model_layout.addLayout(lang_layout)
+
+        # Initial Prompt
+        prompt_layout = QHBoxLayout()
+        prompt_label = QLabel("Initial Prompt:")
+        self.prompt_edit = QLineEdit()
+        self.prompt_edit.setPlaceholderText("Optional: Context or style hint (e.g. 'Hindi conversation')")
+        self.prompt_edit.setToolTip("Provide context to guide the model (improves accuracy).")
+        prompt_layout.addWidget(prompt_label)
+        prompt_layout.addWidget(self.prompt_edit)
+        model_layout.addLayout(prompt_layout)
 
         left_layout.addWidget(model_group)
 
@@ -343,6 +390,24 @@ class MainWindow(QMainWindow):
         if bar:
             bar.showMessage("Ready")
 
+    def _load_settings(self) -> None:
+        """Load last used paths from settings."""
+        last_model = self.settings.value("model_path", "")
+        if last_model and Path(last_model).exists():
+            self.model_edit.setText(last_model)
+            self.start_btn.setEnabled(True)
+            LOGGER.info("Restored model path: %s", last_model)
+
+        # Load Language
+        last_lang = self.settings.value("language", "Auto Detect")
+        idx = self.lang_combo.findText(last_lang)
+        if idx >= 0:
+            self.lang_combo.setCurrentIndex(idx)
+
+        # Load Prompt
+        last_prompt = self.settings.value("initial_prompt", "")
+        self.prompt_edit.setText(last_prompt)
+
     # ---------------------------------------------------------
     # EVENTS
     # ---------------------------------------------------------
@@ -352,17 +417,22 @@ class MainWindow(QMainWindow):
             self.file_list.addItem(p)
 
     def on_add_files_clicked(self) -> None:
+        last_dir = self.settings.value("last_input_dir", "")
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Select media files", "", MEDIA_FILTER
+            self, "Select media files", last_dir, MEDIA_FILTER
         )
         if paths:
             self.file_list.addItems(paths)
+            # Save the directory of the first file
+            if paths:
+                first_file = Path(paths[0])
+                self.settings.setValue("last_input_dir", str(first_file.parent))
 
     def on_select_model_clicked(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Select Whisper model (*.bin)",
-            "",
+            self.settings.value("last_model_dir", ""),
             "Whisper Model (*.bin);;All Files (*)",
         )
         if not path:
@@ -385,6 +455,11 @@ class MainWindow(QMainWindow):
 
         self.model_edit.setText(str(model_dir))
         self.start_btn.setEnabled(True)
+
+        # Save settings
+        self.settings.setValue("model_path", str(model_dir))
+        self.settings.setValue("last_model_dir", str(model_dir.parent))
+
         LOGGER.info("Model directory selected: %s", model_dir)
 
     def _lazy_load_model(self) -> bool:
@@ -440,12 +515,26 @@ class MainWindow(QMainWindow):
         # Use BatchWorker for everything now
         beam_size = 1 if self.fast_mode_check.isChecked() else 5
         vad_filter = self.vad_check.isChecked()
+
+        # Get Language and Prompt
+        lang_name = self.lang_combo.currentText()
+        lang_code = LANGUAGE_MAP.get(lang_name, "Auto")
+        language = None if lang_code == "Auto" else lang_code
+
+        initial_prompt = self.prompt_edit.text().strip() or None
+
+        # Save settings
+        self.settings.setValue("language", lang_name)
+        self.settings.setValue("initial_prompt", self.prompt_edit.text())
+
         worker = BatchWorker(
             self._transcriber,
             input_files=input_files,
             output_dir=None, # Default to same folder
             beam_size=beam_size,
             vad_filter=vad_filter,
+            language=language,
+            initial_prompt=initial_prompt,
         )
         self._worker = worker
 
