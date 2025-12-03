@@ -83,6 +83,9 @@ class BatchWorker(QThread):
         vad_filter: bool = False,
         language: Optional[str] = None,
         initial_prompt: Optional[str] = None,
+        task: str = "transcribe",
+        patience: float = 1.0,
+
     ) -> None:
         super().__init__()
         self._transcriber = transcriber
@@ -92,6 +95,9 @@ class BatchWorker(QThread):
         self._vad_filter = vad_filter
         self._language = language
         self._initial_prompt = initial_prompt
+        self._task = task
+        self._patience = patience
+
         self._cancel = False
         self._model_lock = threading.Lock()
 
@@ -140,6 +146,9 @@ class BatchWorker(QThread):
                         vad_filter=self._vad_filter,
                         language=self._language,
                         initial_prompt=self._initial_prompt,
+                        task=self._task,
+                        patience=self._patience,
+
                     )
                 return result
             except Exception as e:

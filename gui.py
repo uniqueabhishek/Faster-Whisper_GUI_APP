@@ -238,10 +238,28 @@ class MainWindow(QMainWindow):
 
         model_layout.addLayout(row_model)
 
-        # Fast Mode Checkbox
-        self.fast_mode_check = QCheckBox("Fast Mode (2x Speed, slightly less accurate)")
-        self.fast_mode_check.setToolTip("Sets beam_size=1 for faster transcription.")
-        model_layout.addWidget(self.fast_mode_check)
+        # Compute Type (Precision)
+        compute_layout = QHBoxLayout()
+        compute_label = QLabel("Word Analysis Depth:")
+        self.compute_combo = QComboBox()
+        self.compute_combo.addItems([
+            "Fast Analysis (int8)",
+            "Precise Analysis (float32)",
+            "Deep Analysis (float32)"
+        ])
+        # Set tooltips for each item
+        self.compute_combo.setItemData(0, "Checks 5 possibilities (low precision).", Qt.ToolTipRole)
+        self.compute_combo.setItemData(1, "Checks 5 possibilities (full precision).", Qt.ToolTipRole)
+        self.compute_combo.setItemData(2, "Checks 10 possibilities (full precision).", Qt.ToolTipRole)
+
+        # Set default to High Quality
+        self.compute_combo.setCurrentIndex(1)
+
+        compute_layout.addWidget(compute_label)
+        compute_layout.addWidget(self.compute_combo)
+        model_layout.addLayout(compute_layout)
+
+
 
         # VAD Checkbox
         self.vad_check = QCheckBox("Enable VAD (Skip Silence)")
@@ -285,6 +303,15 @@ class MainWindow(QMainWindow):
         self.lang_combo.setToolTip("Select audio language (Auto = detect automatically)")
         lang_layout.addWidget(lang_label)
         lang_layout.addWidget(self.lang_combo)
+
+        # Task Selection (Transcribe / Translate)
+        task_label = QLabel("Task:")
+        self.task_combo = QComboBox()
+        self.task_combo.addItems(["Transcribe", "Translate"])
+        self.task_combo.setToolTip("Transcribe: Keep original language.\nTranslate: Translate everything to English.")
+        lang_layout.addWidget(task_label)
+        lang_layout.addWidget(self.task_combo)
+
         model_layout.addLayout(lang_layout)
 
         # Initial Prompt
@@ -296,6 +323,8 @@ class MainWindow(QMainWindow):
         prompt_layout.addWidget(prompt_label)
         prompt_layout.addWidget(self.prompt_edit)
         model_layout.addLayout(prompt_layout)
+
+
 
         left_layout.addWidget(model_group)
 
@@ -428,6 +457,19 @@ class MainWindow(QMainWindow):
                 first_file = Path(paths[0])
                 self.settings.setValue("last_input_dir", str(first_file.parent))
 
+
+
+
+
+
+
+
+
+
+
+
+
+
     def on_select_model_clicked(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
@@ -468,9 +510,14 @@ class MainWindow(QMainWindow):
 
         self.statusBar().showMessage("Loading model...")
         try:
+            # Parse compute type
+            ctype_text = self.compute_combo.currentText()
+            compute_type = "float32" if "float32" in ctype_text else "int8"
+
             config = TranscriptionConfig(
                 model_name=self.model_edit.text().strip(),
                 language=None,
+                compute_type=compute_type,
             )
             self._transcriber = Transcriber(config)
         except Exception as exc:
@@ -513,8 +560,15 @@ class MainWindow(QMainWindow):
         self._set_busy(True)
 
         # Use BatchWorker for everything now
-        beam_size = 1 if self.fast_mode_check.isChecked() else 5
+        beam_size = 5
         vad_filter = self.vad_check.isChecked()
+        patience = 1.0
+
+        # Deep Analysis Mode
+        if "Deep Analysis" in self.compute_combo.currentText():
+            beam_size = 10
+            patience = 2.0
+            LOGGER.info("Deep Analysis Mode enabled: beam_size=10, patience=2.0")
 
         # Get Language and Prompt
         lang_name = self.lang_combo.currentText()
@@ -523,18 +577,27 @@ class MainWindow(QMainWindow):
 
         initial_prompt = self.prompt_edit.text().strip() or None
 
+        # Get Task
+        task = self.task_combo.currentText().lower()  # "transcribe" or "translate"
+
+
+
         # Save settings
         self.settings.setValue("language", lang_name)
         self.settings.setValue("initial_prompt", self.prompt_edit.text())
+        self.settings.setValue("task", self.task_combo.currentText())
 
         worker = BatchWorker(
             self._transcriber,
-            input_files=input_files,
-            output_dir=None, # Default to same folder
+            input_files,
+            None,  # output_dir (None = same as input)
             beam_size=beam_size,
             vad_filter=vad_filter,
             language=language,
             initial_prompt=initial_prompt,
+            task=task,
+            patience=patience,
+
         )
         self._worker = worker
 

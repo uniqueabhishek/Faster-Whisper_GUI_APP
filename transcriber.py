@@ -241,6 +241,9 @@ class Transcriber:
         vad_filter: bool = False,
         language: Optional[str] = None,
         initial_prompt: Optional[str] = None,
+        task: str = "transcribe",
+        patience: float = 1.0,
+
     ) -> TranscriptionResult:
         LOGGER.info("=== TRANSCRIBE_FILE CALLED ===")
         LOGGER.info("Input: %s", input_path)
@@ -278,6 +281,8 @@ class Transcriber:
                 vad_parameters=vad_params,
                 initial_prompt=initial_prompt,
                 condition_on_previous_text=False,
+                task=task,
+                patience=patience,
             )
         except Exception as e:
             # Fallback for VAD errors (e.g. invalid model file or missing dependencies)
@@ -322,6 +327,8 @@ class Transcriber:
 
         text = "\n".join(lines)
         LOGGER.info("Processed %d text lines", len(lines))
+
+
 
         # Cleanup temp file
         if temp_wav and temp_wav.exists():
