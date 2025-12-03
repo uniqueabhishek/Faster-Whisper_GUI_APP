@@ -47,7 +47,9 @@ MEDIA_FILTER = (
     "All Files (*)"
 )
 DEFAULT_WIDTH = 1200
+DEFAULT_WIDTH = 1000
 DEFAULT_HEIGHT = 800
+APP_VERSION = "v1.0.0"
 
 LANGUAGE_MAP = {
     "Auto Detect": "Auto",
@@ -157,7 +159,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("Faster-Whisper GUI (Unified)")
+        self.setWindowTitle("Faster-Whisper AI Transcriber [Speech to Text]")
 
         # Apply Dark Theme
         app = QApplication.instance()
@@ -423,6 +425,10 @@ class MainWindow(QMainWindow):
         bar = self.statusBar()
         if bar:
             bar.showMessage("Ready")
+            # Add version label to the right
+            version_label = QLabel(f"AI Transcriber App - {APP_VERSION} by Abhishek's AI Labs")
+            version_label.setStyleSheet("color: #9ca3af; padding-right: 10px;")
+            bar.addPermanentWidget(version_label)
 
     def _load_settings(self) -> None:
         """Load last used paths from settings."""
