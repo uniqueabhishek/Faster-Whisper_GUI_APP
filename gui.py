@@ -614,6 +614,28 @@ class MainWindow(QMainWindow):
         # worker.speed.connect(self.on_speed_update) # Removed
         worker.file_status.connect(self.on_file_status_update)
         worker.finished.connect(self.on_finished)
+        worker.failed.connect(self.on_failed)
+        worker.start()
+
+    def on_file_status_update(self, filename: str, status: str) -> None:
+        self.file_status_list.addItem(f"{filename} → {status}")
+        self.file_status_list.scrollToBottom()
+
+    def on_progress(self, percent: int) -> None:
+        self.progress_bar.setValue(percent)
+
+    def on_finished(self, results: List[TranscriptionResult]) -> None:
+        self.statusBar().showMessage(f"Completed. Files: {len(results)}")
+        self._worker = None
+        self._set_busy(False)
+        self.progress_bar.setValue(100)
+        QMessageBox.information(self, "Done", f"Successfully processed {len(results)} files.")
+
+    def on_failed(self, message: str) -> None:
+        self.show_error(message)
+        self.statusBar().showMessage("Failed.")
+        self._worker = None
+        self._set_busy(False)
 
     def on_cancel_clicked(self) -> None:
         if self._worker:
