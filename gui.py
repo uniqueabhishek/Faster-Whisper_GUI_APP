@@ -236,19 +236,29 @@ class MainWindow(QMainWindow):
         # 1. Model Selection
         model_group = QGroupBox("1. Model Selection")
         model_layout = QVBoxLayout(model_group)
+        model_layout.setSpacing(15)  # Increase global spacing
+        model_layout.setContentsMargins(15, 25, 15, 15) # Add internal padding
 
         row_model = QHBoxLayout()
         self.model_edit = QLineEdit()
         self.model_edit.setPlaceholderText("Path to Faster-Whisper model folder...")
         self.model_edit.setReadOnly(True)
+        self.model_edit.setMinimumHeight(30) # Taller input
         row_model.addWidget(self.model_edit)
 
         self.model_btn = QPushButton("Select Model")
+        self.model_btn.setToolTip("Select the folder containing your Faster-Whisper model.\n\n"
+                                  "IMPORTANT: Must be a CTranslate2 converted model\n"
+                                  "(folder must contain 'model.bin' and 'config.json').\n\n"
+                                  "Standard OpenAI .pt files will NOT work.\n"
+                                  "Compatible: tiny, base, small, medium, large-v1/v2/v3, distil-large-v2/v3.")
         self.model_btn.setObjectName("SecondaryBtn")
         self.model_btn.clicked.connect(self.on_select_model_clicked)
+        self.model_btn.setMinimumHeight(30) # Taller button
         row_model.addWidget(self.model_btn)
 
         model_layout.addLayout(row_model)
+        model_layout.addSpacing(5) # Extra space
 
         # Compute Type (Precision)
         compute_layout = QHBoxLayout()
@@ -263,6 +273,7 @@ class MainWindow(QMainWindow):
         self.compute_combo.setItemData(0, "Checks 5 possibilities (low precision).", Qt.ToolTipRole)
         self.compute_combo.setItemData(1, "Checks 5 possibilities (full precision).", Qt.ToolTipRole)
         self.compute_combo.setItemData(2, "Checks 10 possibilities (full precision).", Qt.ToolTipRole)
+        self.compute_combo.setMinimumHeight(30) # Taller combo
 
         # Set default to High Quality
         self.compute_combo.setCurrentIndex(1)
@@ -270,8 +281,7 @@ class MainWindow(QMainWindow):
         compute_layout.addWidget(compute_label)
         compute_layout.addWidget(self.compute_combo)
         model_layout.addLayout(compute_layout)
-
-
+        model_layout.addSpacing(5)
 
         # Checkboxes Layout (Horizontal)
         checks_layout = QHBoxLayout()
@@ -307,13 +317,7 @@ class MainWindow(QMainWindow):
 
         checks_layout.addStretch() # Push to left
         model_layout.addLayout(checks_layout)
-
-
-
-
-
-
-
+        model_layout.addSpacing(5)
 
         # Language Selection
         lang_layout = QHBoxLayout()
@@ -321,6 +325,7 @@ class MainWindow(QMainWindow):
         self.lang_combo = QComboBox()
         self.lang_combo.addItems(list(LANGUAGE_MAP.keys()))
         self.lang_combo.setToolTip("Select audio language (Auto = detect automatically)")
+        self.lang_combo.setMinimumHeight(30)
         lang_layout.addWidget(lang_label)
         lang_layout.addWidget(self.lang_combo)
 
@@ -329,10 +334,12 @@ class MainWindow(QMainWindow):
         self.task_combo = QComboBox()
         self.task_combo.addItems(["Transcribe", "Translate"])
         self.task_combo.setToolTip("Transcribe: Keep original language.\nTranslate: Translate everything to English.")
+        self.task_combo.setMinimumHeight(30)
         lang_layout.addWidget(task_label)
         lang_layout.addWidget(self.task_combo)
 
         model_layout.addLayout(lang_layout)
+        model_layout.addSpacing(5)
 
         # Initial Prompt
         prompt_layout = QHBoxLayout()
@@ -340,6 +347,7 @@ class MainWindow(QMainWindow):
         self.prompt_edit = QLineEdit()
         self.prompt_edit.setPlaceholderText("Optional: Context or style hint (e.g. 'Hindi conversation')")
         self.prompt_edit.setToolTip("Provide context to guide the model (improves accuracy).")
+        self.prompt_edit.setMinimumHeight(30)
         prompt_layout.addWidget(prompt_label)
         prompt_layout.addWidget(self.prompt_edit)
         model_layout.addLayout(prompt_layout)
