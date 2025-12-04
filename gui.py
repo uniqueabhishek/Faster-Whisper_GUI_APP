@@ -495,9 +495,19 @@ class MainWindow(QMainWindow):
     # EVENTS
     # ---------------------------------------------------------
 
+    def _add_file_item(self, path: str) -> None:
+        """Helper to add a file item with numbering and UserRole data."""
+        row = self.file_list.count()
+        filename = Path(path).name
+        item_text = f"{row + 1}. {filename} [In Queue]"
+
+        item = QListWidgetItem(item_text)
+        item.setData(Qt.UserRole, str(path))  # Store full path
+        self.file_list.addItem(item)
+
     def on_files_dropped(self, paths: List[str]) -> None:
         for p in paths:
-            self.file_list.addItem(p)
+            self._add_file_item(p)
 
     def on_add_files_clicked(self) -> None:
         last_dir = self.settings.value("last_input_dir", "")
@@ -505,11 +515,12 @@ class MainWindow(QMainWindow):
             self, "Select media files", last_dir, MEDIA_FILTER
         )
         if paths:
-            self.file_list.addItems(paths)
+            for p in paths:
+                self._add_file_item(p)
+
             # Save the directory of the first file
-            if paths:
-                first_file = Path(paths[0])
-                self.settings.setValue("last_input_dir", str(first_file.parent))
+            first_file = Path(paths[0])
+            self.settings.setValue("last_input_dir", str(first_file.parent))
 
     def on_select_output_clicked(self) -> None:
         path = QFileDialog.getExistingDirectory(
@@ -631,12 +642,18 @@ class MainWindow(QMainWindow):
             return
 
         # Collect files
+        # Collect files
         input_files = []
         for i in range(self.file_list.count()):
             item = self.file_list.item(i)
-            path = Path(item.text())
-            if path.is_file():
-                input_files.append(path)
+            # Retrieve full path from UserRole
+            path_str = item.data(Qt.UserRole)
+            if path_str:
+                path = Path(path_str)
+                if path.is_file():
+                    input_files.append(path)
+                    # Reset text to ensure clean state: "1. filename.mp3 [In Queue]"
+                    item.setText(f"{i+1}. {path.name} [In Queue]")
 
         if not input_files:
             self.show_error("No valid files found in list.")
