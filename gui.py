@@ -252,12 +252,12 @@ class MainWindow(QMainWindow):
 
         # Compute Type (Precision)
         compute_layout = QHBoxLayout()
-        compute_label = QLabel("Transcription Accuracy:")
+        compute_label = QLabel("Word Analysis Depth:")
         self.compute_combo = QComboBox()
         self.compute_combo.addItems([
-            "Standard (Fast)",
-            "High Accuracy",
-            "Best Quality (Slow)"
+            "Fast Analysis (int8)",
+            "Precise Analysis (float32)",
+            "Deep Analysis (float32)"
         ])
         # Set tooltips for each item
         self.compute_combo.setItemData(0, "Checks 5 possibilities (low precision).", Qt.ToolTipRole)
@@ -592,10 +592,10 @@ class MainWindow(QMainWindow):
     def _lazy_load_model(self) -> bool:
         # Parse compute type
         ctype_text = self.compute_combo.currentText()
-        # "Standard (Fast)" -> int8
-        # "High Accuracy" -> float32
-        # "Best Quality (Slow)" -> float32
-        if "High Accuracy" in ctype_text or "Best Quality" in ctype_text:
+        # "Fast Analysis (int8)" -> int8
+        # "Precise Analysis (float32)" -> float32
+        # "Deep Analysis (float32)" -> float32
+        if "Precise" in ctype_text or "Deep" in ctype_text:
             compute_type = "float32"
         else:
             compute_type = "int8"
@@ -671,10 +671,10 @@ class MainWindow(QMainWindow):
         patience = 1.0
 
         # Best Quality Mode
-        if "Best Quality" in self.compute_combo.currentText():
+        if "Deep Analysis" in self.compute_combo.currentText():
             beam_size = 10
             patience = 2.0
-            LOGGER.info("Best Quality Mode enabled: beam_size=10, patience=2.0")
+            LOGGER.info("Deep Analysis Mode enabled: beam_size=10, patience=2.0")
 
         # Get Language and Prompt
         lang_name = self.lang_combo.currentText()
@@ -728,14 +728,16 @@ class MainWindow(QMainWindow):
         # Find the item in the list and update it
         for i in range(self.file_list.count()):
             item = self.file_list.item(i)
-            # We stored the original filename in UserRole
-            original_name = item.data(Qt.UserRole)
-            if original_name == filename:
-                # Update text: "1. filename.mp3 [Processing]"
-                item.setText(f"{i+1}. {filename} [{status}]")
-                # Optional: Scroll to item
-                self.file_list.scrollToItem(item)
-                break
+            # We stored the original full path in UserRole
+            full_path_str = item.data(Qt.UserRole)
+            if full_path_str:
+                # Worker emits only the filename (path.name), so we compare names
+                if Path(full_path_str).name == filename:
+                    # Update text: "1. filename.mp3 [Processing]"
+                    item.setText(f"{i+1}. {filename} [{status}]")
+                    # Optional: Scroll to item
+                    self.file_list.scrollToItem(item)
+                    break
 
     def on_progress(self, percent: int) -> None:
         self.progress_bar.setValue(percent)

@@ -153,11 +153,13 @@ class BatchWorker(QThread):
                     return None
 
                 # Notify waiting for lock
-                self.file_status.emit(path.name, "Waiting for AI...")
+                # Notify waiting for lock
+                self.file_status.emit(path.name, "Pre-processing Done")
 
                 # 2. Transcribe (Model Step - Sequential)
                 with self._model_lock:
                     if self._cancel:
+                        self.file_status.emit(path.name, "Cancelled")
                         return None
                     self.file_status.emit(path.name, "Processing by AI")
                     out_path = (
