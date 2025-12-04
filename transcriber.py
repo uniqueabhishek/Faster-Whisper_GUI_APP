@@ -190,17 +190,15 @@ class Transcriber:
             LOGGER.error("Failed to load model: %s", str(e))
             raise
 
-    def prepare_audio(self, input_path: Path, cancel_check: Optional[Callable[[], bool]] = None) -> Optional[Path]:
-        """Converts input to 16kHz mono WAV using ffmpeg.
+    def prepare_audio(self, input_path: Path) -> Optional[Path]:
+        """Converts input to 16kHz mono WAV using ffmpeg to fix duration issues.
            Returns Path to temp file if converted, or None if original is fine.
-           Checks cancel_check() periodically to abort.
         """
         import subprocess
         import tempfile
         import shutil
         import os
         import wave
-        import time
 
         if not shutil.which("ffmpeg"):
             LOGGER.warning("ffmpeg not found. Skipping audio repair.")
@@ -238,30 +236,8 @@ class Transcriber:
                 str(temp_path)
             ]
 
-            # Use Popen for non-blocking execution to allow cancellation
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
-
-            while process.poll() is None:
-                if cancel_check and cancel_check():
-                    LOGGER.warning("Audio repair cancelled. Killing ffmpeg...")
-                    process.kill()
-                    process.wait()
-                    # Cleanup partial file
-                    if temp_path.exists():
-                        try:
-                            os.unlink(temp_path)
-                        except Exception:
-                            pass
-                    return None
-                time.sleep(0.1)
-
-            if process.returncode != 0:
-                LOGGER.error("ffmpeg failed with return code %d", process.returncode)
-                return None
+            # Run ffmpeg (suppress output unless error)
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
             if temp_path.exists() and temp_path.stat().st_size > 0:
                 LOGGER.info("Audio repair successful.")
