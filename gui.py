@@ -29,7 +29,8 @@ from PyQt5.QtWidgets import (
     QSplitter,
     QGroupBox,
     QFrame,
-    QAbstractItemView
+    QAbstractItemView,
+    QListWidgetItem
 )
 
 from transcriber import (
@@ -347,7 +348,25 @@ class MainWindow(QMainWindow):
 
         left_layout.addWidget(model_group)
 
-        # 2. Files Queue
+        # --- Live Logs (Moved to Left) ---
+        log_label = QLabel("Live Logs & Reports")
+        log_label.setStyleSheet("font-weight: bold; color: #9ca3af;")
+        left_layout.addWidget(log_label)
+
+        self.log_output = QTextEdit()
+        self.log_output.setReadOnly(True)
+        left_layout.addWidget(self.log_output)
+
+        # Spacer
+        left_layout.addStretch()
+
+
+        # --- Right Pane: Logs ---
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(20, 20, 20, 20)
+
+        # --- Files Queue (Moved to Right) ---
         queue_group = QGroupBox("2. Files to Transcribe")
         queue_layout = QVBoxLayout(queue_group)
 
@@ -359,7 +378,6 @@ class MainWindow(QMainWindow):
         # File List
         self.file_list = QListWidget()
         self.file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        # self.file_list.setPlaceholderText("No files added...") # Not supported in PyQt5
         queue_layout.addWidget(self.file_list)
 
         # Buttons Row
@@ -376,7 +394,6 @@ class MainWindow(QMainWindow):
 
         queue_layout.addLayout(btn_row)
 
-        # Output Folder Selection
         # Output Folder Selection
         output_layout = QHBoxLayout()
 
@@ -399,10 +416,7 @@ class MainWindow(QMainWindow):
         output_layout.addWidget(self.open_btn)
 
         queue_layout.addLayout(output_layout)
-        left_layout.addWidget(queue_group)
-
-        # Spacer
-        left_layout.addStretch()
+        right_layout.addWidget(queue_group)
 
         # Action Buttons
         self.start_btn = QPushButton("Start Transcription")
@@ -410,42 +424,38 @@ class MainWindow(QMainWindow):
         self.start_btn.setMinimumHeight(50)
         self.start_btn.setStyleSheet("font-size: 16px;")
         self.start_btn.clicked.connect(self.on_start_clicked)
-        left_layout.addWidget(self.start_btn)
+        right_layout.addWidget(self.start_btn)
 
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setEnabled(False)
-        self.cancel_btn.setStyleSheet("background-color: #ef4444;")
+        self.cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ef4444;
+                color: white;
+                font-weight: bold;
+                border-radius: 4px;
+                padding: 8px;
+            }
+            QPushButton:disabled {
+                background-color: #d1d5db;
+                color: #9ca3af;
+            }
+        """)
         self.cancel_btn.clicked.connect(self.on_cancel_clicked)
-        left_layout.addWidget(self.cancel_btn)
+        right_layout.addWidget(self.cancel_btn)
 
         # Progress Bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setFormat("%p%")
-        left_layout.addWidget(self.progress_bar)
+        right_layout.addWidget(self.progress_bar)
 
-
-        # --- Right Pane: Logs ---
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        right_layout.setContentsMargins(20, 20, 20, 20)
-
-        log_label = QLabel("Live Logs & Output")
-        log_label.setStyleSheet("font-weight: bold; color: #9ca3af;")
-        right_layout.addWidget(log_label)
-
-        self.log_output = QTextEdit()
-        self.log_output.setReadOnly(True)
-        right_layout.addWidget(self.log_output)
-
-        status_label = QLabel("File Status")
-        status_label.setStyleSheet("font-weight: bold; color: #9ca3af; margin-top: 10px;")
-        right_layout.addWidget(status_label)
-
-        self.file_status_list = QListWidget()
-        self.file_status_list.setMaximumHeight(200)
-        right_layout.addWidget(self.file_status_list)
+        # Removed separate file status list (merged into main queue)
+        # status_label = QLabel("File Status")
+        # ...
+        # self.file_status_list = QListWidget()
+        # ...
 
         # Add widgets to splitter
         splitter.addWidget(left_widget)
@@ -493,9 +503,17 @@ class MainWindow(QMainWindow):
     # EVENTS
     # ---------------------------------------------------------
 
+    def _add_file_item(self, path_str: str) -> None:
+        """Add a file to the list with numbering and UserRole data."""
+        count = self.file_list.count() + 1
+        path = Path(path_str)
+        item = QListWidgetItem(f"{count}. {path.name} [In Queue]")
+        item.setData(Qt.UserRole, str(path.resolve()))
+        self.file_list.addItem(item)
+
     def on_files_dropped(self, paths: List[str]) -> None:
         for p in paths:
-            self.file_list.addItem(p)
+            self._add_file_item(p)
 
     def on_add_files_clicked(self) -> None:
         last_dir = self.settings.value("last_input_dir", "")
@@ -503,7 +521,9 @@ class MainWindow(QMainWindow):
             self, "Select media files", last_dir, MEDIA_FILTER
         )
         if paths:
-            self.file_list.addItems(paths)
+            for p in paths:
+                self._add_file_item(p)
+
             # Save the directory of the first file
             if paths:
                 first_file = Path(paths[0])
@@ -625,15 +645,22 @@ class MainWindow(QMainWindow):
         input_files = []
         for i in range(self.file_list.count()):
             item = self.file_list.item(i)
-            path = Path(item.text())
+            # Use UserRole if available (contains full path), otherwise text
+            path_str = item.data(Qt.UserRole)
+            if not path_str:
+                path_str = item.text()
+
+            path = Path(path_str)
             if path.is_file():
                 input_files.append(path)
+                # Reset text to "1. filename.mp3 [In Queue]"
+                item.setText(f"{i + 1}. {path.name} [In Queue]")
 
         if not input_files:
             self.show_error("No valid files found in list.")
             return
 
-        self.file_status_list.clear()
+        # self.file_status_list.clear() # Removed
         self.progress_bar.setValue(0)
         self.statusBar().showMessage("Starting transcription...")
         self._set_busy(True)
@@ -698,8 +725,26 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def on_file_status_update(self, filename: str, status: str) -> None:
-        self.file_status_list.addItem(f"{filename} → {status}")
-        self.file_status_list.scrollToBottom()
+        """Update status in the main file list."""
+        # Find the item with this filename
+        for i in range(self.file_list.count()):
+            item = self.file_list.item(i)
+            path_str = item.data(Qt.UserRole)
+            # Fallback to text if UserRole is missing (shouldn't happen)
+            if not path_str:
+                path_str = item.text()
+
+            if Path(path_str).name == filename:
+                # Update text: "1. filename.mp3 [Status]"
+                item.setText(f"{i + 1}. {filename} [{status}]")
+
+                # Optional: Scroll to item
+                if status == "Processing":
+                    self.file_list.scrollToItem(item)
+                break
+
+        # Log to console as well
+        LOGGER.info(f"File Status: {filename} -> {status}")
 
     def on_progress(self, percent: int) -> None:
         self.progress_bar.setValue(percent)

@@ -190,13 +190,17 @@ class Transcriber:
             LOGGER.error("Failed to load model: %s", str(e))
             raise
 
-    def _convert_to_wav(self, input_path: Path) -> Optional[Path]:
-        """Converts input to 16kHz mono WAV using ffmpeg to fix duration issues."""
+    def prepare_audio(self, input_path: Path, cancel_check: Optional[Callable[[], bool]] = None) -> Optional[Path]:
+        """Converts input to 16kHz mono WAV using ffmpeg.
+           Returns Path to temp file if converted, or None if original is fine.
+           Checks cancel_check() periodically to abort.
+        """
         import subprocess
         import tempfile
         import shutil
         import os
         import wave
+        import time
 
         if not shutil.which("ffmpeg"):
             LOGGER.warning("ffmpeg not found. Skipping audio repair.")
@@ -234,8 +238,30 @@ class Transcriber:
                 str(temp_path)
             ]
 
-            # Run ffmpeg (suppress output unless error)
-            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            # Use Popen for non-blocking execution to allow cancellation
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+
+            while process.poll() is None:
+                if cancel_check and cancel_check():
+                    LOGGER.warning("Audio repair cancelled. Killing ffmpeg...")
+                    process.kill()
+                    process.wait()
+                    # Cleanup partial file
+                    if temp_path.exists():
+                        try:
+                            os.unlink(temp_path)
+                        except Exception:
+                            pass
+                    return None
+                time.sleep(0.1)
+
+            if process.returncode != 0:
+                LOGGER.error("ffmpeg failed with return code %d", process.returncode)
+                return None
 
             if temp_path.exists() and temp_path.stat().st_size > 0:
                 LOGGER.info("Audio repair successful.")
@@ -261,6 +287,7 @@ class Transcriber:
         patience: float = 1.0,
         add_timestamps: bool = True,
         add_report: bool = True,
+        pre_converted_path: Optional[Path] = None,
     ) -> TranscriptionResult:
         LOGGER.info("=== TRANSCRIBE_FILE CALLED ===")
         LOGGER.info("Input: %s", input_path)
@@ -269,8 +296,14 @@ class Transcriber:
         if not input_path.is_file():
             raise FileNotFoundError(f"Input file not found: {input_path}")
 
-        # Try to repair/convert audio first
-        temp_wav = self._convert_to_wav(input_path)
+        # Use pre-converted audio if provided, otherwise convert now
+        if pre_converted_path:
+            temp_wav = pre_converted_path
+            LOGGER.info("Using pre-converted audio: %s", temp_wav)
+        else:
+            # Try to repair/convert audio first
+            temp_wav = self.prepare_audio(input_path)
+
         actual_input = temp_wav if temp_wav else input_path
 
         bs = beam_size if beam_size is not None else self._config.beam_size
@@ -392,8 +425,9 @@ class Transcriber:
 
 
 
-        # Cleanup temp file
-        if temp_wav and temp_wav.exists():
+        # Cleanup temp file ONLY if we created it internally
+        # If pre_converted_path was passed, the caller is responsible for cleanup
+        if not pre_converted_path and temp_wav and temp_wav.exists():
             try:
                 LOGGER.info("Removing temp file: %s", temp_wav)
                 os.unlink(temp_wav)

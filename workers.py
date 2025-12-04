@@ -16,7 +16,7 @@ from transcriber import Transcriber, TranscriptionResult
 LOGGER = logging.getLogger(__name__)
 
 # Global executor for parallel batch
-EXECUTOR = ThreadPoolExecutor(max_workers=4)
+EXECUTOR = ThreadPoolExecutor(max_workers=2)
 
 
 class SingleFileWorker(QThread):
@@ -102,6 +102,7 @@ class BatchWorker(QThread):
         self.add_report = add_report
         self._cancel = False
         self._model_lock = threading.Lock()
+        self._prep_lock = threading.Lock() # Lock for audio preparation (ffmpeg)
     def request_cancel(self) -> None:
         self._cancel = True
 
@@ -119,18 +120,46 @@ class BatchWorker(QThread):
         # Internal job with lock for thread-safety
         def _job(path: Path) -> Optional[TranscriptionResult]:
             if self._cancel:
+                self.file_status.emit(path.name, "Cancelled")
                 return None
 
             self.file_status.emit(path.name, "Processing")
 
             def _on_file_progress(file_percent: int):
+                if self._cancel:
+                    raise Exception("Cancelled")
                 # Calculate overall progress
                 if total > 0:
                     overall = int((processed * 100 + file_percent) / total)
                     self.progress.emit(overall)
 
+            temp_wav = None
             try:
+                # 1. Prepare Audio (Pipeline Step - Parallel but Limited)
+                # Use lock to ensure only ONE file is being prepared at a time
+                with self._prep_lock:
+                    self.file_status.emit(path.name, "Pre-processing")
+                    # Pass cancel check to allow killing ffmpeg
+                    temp_wav = self._transcriber.prepare_audio(path, cancel_check=lambda: self._cancel)
+
+                # Check for cancellation immediately after preparation
+                if self._cancel:
+                    if temp_wav and temp_wav.exists():
+                        try:
+                            import os
+                            os.unlink(temp_wav)
+                        except Exception:
+                            pass
+                    return None
+
+                # Notify waiting for lock
+                self.file_status.emit(path.name, "Waiting for AI...")
+
+                # 2. Transcribe (Model Step - Sequential)
                 with self._model_lock:
+                    if self._cancel:
+                        return None
+                    self.file_status.emit(path.name, "Processing by AI")
                     out_path = (
                         self._output_dir / f"{path.stem}.txt"
                         if self._output_dir
@@ -148,13 +177,29 @@ class BatchWorker(QThread):
                         patience=self._patience,
                         add_timestamps=self._add_timestamps,
                         add_report=self.add_report,
+                        pre_converted_path=temp_wav, # Pass the pre-converted file
                     )
+
                 return result
+
             except Exception as e:
+                if str(e) == "Cancelled":
+                    LOGGER.info("Processing cancelled for %s", path.name)
+                    self.file_status.emit(path.name, "Cancelled")
+                    return None
                 LOGGER.error("Error processing %s: %s", path.name, str(e))
                 import traceback
                 LOGGER.error(traceback.format_exc())
                 return None
+
+            finally:
+                # 3. Cleanup (Always run, even on error)
+                if temp_wav and temp_wav.exists():
+                    try:
+                        import os
+                        os.unlink(temp_wav)
+                    except Exception:
+                        pass
 
         # Submit all futures to global executor
         futures = {EXECUTOR.submit(_job, p): p for p in media_files}
