@@ -642,7 +642,7 @@ class MainWindow(QMainWindow):
             self.show_error("No valid files found in list.")
             return
 
-        self.file_status_list.clear()
+        # self.file_status_list.clear() # Removed
         self.progress_bar.setValue(0)
         self.statusBar().showMessage("Starting transcription...")
         self._set_busy(True)
@@ -707,8 +707,17 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def on_file_status_update(self, filename: str, status: str) -> None:
-        self.file_status_list.addItem(f"{filename} → {status}")
-        self.file_status_list.scrollToBottom()
+        # Find the item in the list and update it
+        for i in range(self.file_list.count()):
+            item = self.file_list.item(i)
+            # We stored the original filename in UserRole
+            original_name = item.data(Qt.UserRole)
+            if original_name == filename:
+                # Update text: "1. filename.mp3 [Processing]"
+                item.setText(f"{i+1}. {filename} [{status}]")
+                # Optional: Scroll to item
+                self.file_list.scrollToItem(item)
+                break
 
     def on_progress(self, percent: int) -> None:
         self.progress_bar.setValue(percent)
