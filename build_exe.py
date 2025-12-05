@@ -20,12 +20,21 @@ def build():
     separator = ";" if os.name == 'nt' else ":"
 
     cmd = [
-        "pyinstaller",
+        sys.executable, "-m", "PyInstaller",
         "--noconsole",
         "--clean",
         "-y",
         "--name", "FasterWhisperGUI",
         f"--add-data", f"assets{separator}assets",
+        "--hidden-import", "df",
+        "--hidden-import", "torchaudio",
+        "--hidden-import", "soundfile",
+        "--hidden-import", "faster_whisper",
+        "--collect-all", "deepfilternet",
+        "--collect-all", "onnxruntime",
+        "--collect-all", "faster_whisper",
+        "--collect-all", "ctranslate2",
+        "--collect-all", "tokenizers",
         "app.py"
     ]
 
