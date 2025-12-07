@@ -292,23 +292,6 @@ class TranscriptionWindow(QMainWindow):
         # Checkboxes Layout (Horizontal)
         checks_layout = QHBoxLayout()
 
-        # VAD Checkbox
-        self.vad_check = QCheckBox("Smart Silence Removal")
-        self.vad_check.setToolTip("Automatically detects and skips silent parts to speed up processing.\nTurn it off if your audio has very low volume speech.")
-
-        # Check if onnxruntime is working
-        try:
-            import onnxruntime
-            self.vad_check.setChecked(False)
-        except Exception as e:
-            LOGGER.exception("Failed to import onnxruntime")
-            self.vad_check.setChecked(False)
-            self.vad_check.setEnabled(False)
-            self.vad_check.setText("Smart Silence Removal (Error loading library)")
-            self.vad_check.setToolTip(f"VAD requires 'onnxruntime' which failed to load.\nError: {str(e)}\n\nPlease ensure Visual C++ Redistributable is installed.")
-
-        checks_layout.addWidget(self.vad_check)
-
         # Timestamp Checkbox
         self.timestamp_check = QCheckBox("Add Timestamp")
         self.timestamp_check.setToolTip("Checked: Output includes timestamps [MM:SS -> MM:SS].\nUnchecked: Output contains text only.")
@@ -704,7 +687,6 @@ class TranscriptionWindow(QMainWindow):
 
         # Use BatchWorker for everything now
         beam_size = 5
-        vad_filter = self.vad_check.isChecked()
         patience = 1.0
 
         # Best Quality Mode
@@ -744,7 +726,6 @@ class TranscriptionWindow(QMainWindow):
             input_files,
             output_dir,  # output_dir (None = same as input)
             beam_size=beam_size,
-            vad_filter=vad_filter,
             language=language,
             initial_prompt=initial_prompt,
             task=task,

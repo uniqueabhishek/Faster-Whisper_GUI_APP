@@ -10,7 +10,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Callable
 
-LOGGER = logging.getLogger(__name__)
+# Import transcriber to ensure VAD model patches are applied
+# This MUST be imported before any faster_whisper.vad imports
+try:
+    import transcriber  # noqa: F401
+    LOGGER = logging.getLogger(__name__)
+    LOGGER.info("Transcriber imported - VAD patches applied")
+except ImportError:
+    LOGGER = logging.getLogger(__name__)
+    LOGGER.warning("Could not import transcriber - VAD may not work correctly")
 
 
 @dataclass
@@ -57,8 +65,8 @@ def convert_to_wav_16khz_mono(
         # Use Popen to allow cancellation
         process = subprocess.Popen(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW
         )
 
@@ -82,8 +90,7 @@ def convert_to_wav_16khz_mono(
             time.sleep(0.1)
 
         if process.returncode != 0:
-            stderr = process.stderr.read().decode()
-            LOGGER.error("ffmpeg conversion failed: %s", stderr)
+            LOGGER.error("ffmpeg conversion failed with return code: %d", process.returncode)
             return False
 
         LOGGER.info("Successfully converted %s to WAV", input_path.name)
@@ -128,8 +135,8 @@ def normalize_audio(
 
         process = subprocess.Popen(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW
         )
 
@@ -151,8 +158,7 @@ def normalize_audio(
             time.sleep(0.1)
 
         if process.returncode != 0:
-            stderr = process.stderr.read().decode()
-            LOGGER.error("ffmpeg normalization failed: %s", stderr)
+            LOGGER.error("ffmpeg normalization failed with return code: %d", process.returncode)
             return False
 
         LOGGER.info("Successfully normalized %s", input_path.name)
@@ -193,8 +199,8 @@ def reduce_noise(
 
         process = subprocess.Popen(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW
         )
 
@@ -216,8 +222,7 @@ def reduce_noise(
             time.sleep(0.1)
 
         if process.returncode != 0:
-            stderr = process.stderr.read().decode()
-            LOGGER.error("ffmpeg noise reduction failed: %s", stderr)
+            LOGGER.error("ffmpeg noise reduction failed with return code: %d", process.returncode)
             return False
 
         LOGGER.info("Successfully reduced noise in %s", input_path.name)
@@ -268,8 +273,8 @@ def remove_music(
 
         process = subprocess.Popen(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW
         )
 
@@ -291,8 +296,7 @@ def remove_music(
             time.sleep(0.1)
 
         if process.returncode != 0:
-            stderr = process.stderr.read().decode()
-            LOGGER.error("ffmpeg music removal failed: %s", stderr)
+            LOGGER.error("ffmpeg music removal failed with return code: %d", process.returncode)
             return False
 
         LOGGER.info("Successfully removed music from %s", input_path.name)
@@ -330,8 +334,8 @@ def trim_silence_vad(
             import soundfile as sf
             import sys
 
-            # Import VAD model (reuse existing patch from transcriber.py)
-            from faster_whisper.vad import get_vad_model
+            # Import VAD functions (reuse existing patch from transcriber.py)
+            from faster_whisper.vad import get_speech_timestamps, VadOptions
 
         except ImportError as e:
             LOGGER.error("Missing dependencies for VAD trimming: %s", str(e))
@@ -360,11 +364,22 @@ def trim_silence_vad(
         if cancel_check and cancel_check():
             return False
 
-        # Load VAD model
-        vad_model = get_vad_model()
+        # Configure VAD options as documented in preprocessing_gui.py tooltip
+        # - min_silence_duration_ms=3000 (3 seconds) - Only remove silences longer than 3s
+        # - speech_pad_ms=1000 (1 second) - Add 1s padding before/after speech
+        # - threshold=0.1 (10% confidence) - Very sensitive detection
+        vad_options = VadOptions(
+            min_silence_duration_ms=3000,
+            speech_pad_ms=1000,
+            threshold=0.1
+        )
 
-        # Get speech timestamps
-        speech_timestamps = vad_model(audio, sample_rate)
+        # Get speech timestamps using proper VAD function
+        speech_timestamps = get_speech_timestamps(
+            audio,
+            vad_options=vad_options,
+            sampling_rate=sample_rate
+        )
 
         if cancel_check and cancel_check():
             return False
@@ -386,17 +401,17 @@ def trim_silence_vad(
             if cancel_check and cancel_check():
                 return False
 
-            # Convert timestamps to sample indices
-            start_sample = int(segment['start'] * sample_rate)
-            end_sample = int(segment['end'] * sample_rate)
+            # get_speech_timestamps returns sample indices, not seconds
+            start_sample = segment['start']
+            end_sample = segment['end']
 
             # Extract this speech segment
             speech_chunk = audio[start_sample:end_sample]
             speech_segments.append(speech_chunk)
 
             LOGGER.debug("Segment %d: %.2fs - %.2fs (duration: %.2fs)",
-                        i + 1, segment['start'], segment['end'],
-                        segment['end'] - segment['start'])
+                        i + 1, start_sample / sample_rate, end_sample / sample_rate,
+                        (end_sample - start_sample) / sample_rate)
 
         # Concatenate all speech segments
         trimmed_audio = np.concatenate(speech_segments)
