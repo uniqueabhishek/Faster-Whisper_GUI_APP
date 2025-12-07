@@ -155,10 +155,10 @@ class DragDropWidget(QFrame):
             self.filesDropped.emit(paths)
 
 
-class MainWindow(QMainWindow):
+class TranscriptionWindow(QMainWindow):
     """Main Faster-Whisper GUI window."""
 
-    def __init__(self) -> None:
+    def __init__(self, initial_files: Optional[List[Path]] = None) -> None:
         super().__init__()
         self.setWindowTitle("Faster-Whisper AI Transcriber [Speech to Text]")
 
@@ -193,6 +193,11 @@ class MainWindow(QMainWindow):
         self._setup_logging()
 
         self._load_settings()
+
+        # Add initial files to queue if provided
+        if initial_files:
+            for file_path in initial_files:
+                self._add_file_item(str(file_path))
 
         self.resize(DEFAULT_WIDTH, DEFAULT_HEIGHT)
         self._center_window()
@@ -813,3 +818,7 @@ class MainWindow(QMainWindow):
         # Disable list modification while running
         self.file_list.setEnabled(not busy)
         self.drag_drop.setVisible(not busy)
+
+
+# Backward compatibility alias
+MainWindow = TranscriptionWindow
