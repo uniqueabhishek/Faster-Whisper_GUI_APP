@@ -35,7 +35,7 @@ SIDEBAR_STYLE = """
 
     QPushButton#nav_button {
         text-align: left;
-        padding: 15px 20px;
+        padding: 12px 15px;
         border: none;
         background-color: transparent;
         color: #cccccc;
@@ -109,7 +109,7 @@ class MainWindow(QMainWindow):
         # Sidebar
         sidebar = QWidget()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(150)
+        sidebar.setFixedWidth(130)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)
@@ -163,14 +163,12 @@ class MainWindow(QMainWindow):
         self.stacked_widget.setCurrentIndex(0)
         self._update_nav_buttons(0)
         self.settings.setValue("last_view", 0)
-        LOGGER.info("Switched to Preprocessing view")
 
     def _switch_to_transcription(self) -> None:
         """Switch to transcription view."""
         self.stacked_widget.setCurrentIndex(1)
         self._update_nav_buttons(1)
         self.settings.setValue("last_view", 1)
-        LOGGER.info("Switched to Transcription view")
 
     def _update_nav_buttons(self, index: int) -> None:
         """Update navigation button checked state."""
@@ -179,14 +177,12 @@ class MainWindow(QMainWindow):
 
     def _on_transcription_requested(self, files: List[Path]) -> None:
         """Handle transition from preprocessing to transcription."""
-        LOGGER.info("Transcription requested with %d files", len(files))
         self._switch_to_transcription()
         if files:
             self.transcription_view.add_files_to_queue(files)
 
     def _open_separate_preprocessing_window(self) -> None:
         """Open independent preprocessing window."""
-        LOGGER.info("Opening separate preprocessing window")
         window = PreprocessingWindow(parent=self)
         window.preprocessing_completed.connect(self._on_external_files_preprocessed)
         window.show()
@@ -196,7 +192,6 @@ class MainWindow(QMainWindow):
 
     def _on_external_files_preprocessed(self, files: List[Path]) -> None:
         """Handle files from separate preprocessing window."""
-        LOGGER.info("External preprocessing completed with %d files", len(files))
         self._switch_to_transcription()
         self.transcription_view.add_files_to_queue(files)
 

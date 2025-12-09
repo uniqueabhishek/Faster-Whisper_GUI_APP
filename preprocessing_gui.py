@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import (
     QSlider,
     QAbstractItemView,
     QListWidgetItem,
+    QSplitter,
 )
 
 from styles import DARK_THEME_QSS, apply_dark_title_bar
@@ -212,48 +213,30 @@ class PreprocessingBase(QWidget):
         logging.getLogger().addHandler(handler)
 
     def _build_ui(self) -> None:
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(20, 20, 20, 20)
-        main_layout.setSpacing(15)
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        # Header
+        # Splitter for Left (Options/Logs) and Right (File Queue)
+        splitter = QSplitter(Qt.Horizontal)
+
+        # --- LEFT PANE: Preprocessing Options, Output Folder, Live Logs ---
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(20, 20, 10, 20)
+        left_layout.setSpacing(15)
+
+        # Header (in left pane)
         header = QLabel("Audio Preprocessing")
         header.setObjectName("Header")
         header.setStyleSheet("font-size: 24px; font-weight: bold; color: #3b82f6;")
-        main_layout.addWidget(header)
-
-        # Drag & Drop Area
-        self.drag_drop = DragDropWidget("Drag & Drop Audio Files Here")
-        self.drag_drop.filesDropped.connect(self.on_files_dropped)
-        main_layout.addWidget(self.drag_drop)
-
-        # File List
-        file_label = QLabel("Files to Preprocess:")
-        file_label.setStyleSheet("font-weight: bold; color: #9ca3af;")
-        main_layout.addWidget(file_label)
-
-        self.file_list = QListWidget()
-        self.file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        main_layout.addWidget(self.file_list)
-
-        # Buttons Row
-        btn_row = QHBoxLayout()
-        add_btn = QPushButton("Add Files")
-        add_btn.setObjectName("SecondaryBtn")
-        add_btn.clicked.connect(self.on_add_files_clicked)
-        btn_row.addWidget(add_btn)
-
-        clear_btn = QPushButton("Clear List")
-        clear_btn.setObjectName("SecondaryBtn")
-        clear_btn.clicked.connect(self.file_list.clear)
-        btn_row.addWidget(clear_btn)
-
-        main_layout.addLayout(btn_row)
+        left_layout.addWidget(header)
 
         # Preprocessing Options Group
         options_group = QGroupBox("Preprocessing Options")
         options_layout = QVBoxLayout(options_group)
         options_layout.setSpacing(10)
+        options_layout.setContentsMargins(15, 20, 15, 15)
 
         # Convert to WAV checkbox (with settings button)
         convert_row = QHBoxLayout()
@@ -379,7 +362,7 @@ class PreprocessingBase(QWidget):
 
         options_layout.addLayout(trim_row)
 
-        main_layout.addWidget(options_group)
+        left_layout.addWidget(options_group)
 
         # Output Folder
         output_layout = QHBoxLayout()
@@ -395,23 +378,58 @@ class PreprocessingBase(QWidget):
         output_btn.clicked.connect(self.on_select_output_clicked)
         output_layout.addWidget(output_btn)
 
-        main_layout.addLayout(output_layout)
+        left_layout.addLayout(output_layout)
+
+        # Live Logs
+        log_label = QLabel("Live Logs:")
+        log_label.setStyleSheet("font-weight: bold; color: #9ca3af;")
+        left_layout.addWidget(log_label)
+
+        self.log_output = QTextEdit()
+        self.log_output.setReadOnly(True)
+        left_layout.addWidget(self.log_output)
+
+        # --- RIGHT PANE: Drag & Drop and File Queue ---
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(10, 20, 20, 20)
+        right_layout.setSpacing(15)
+
+        # File Queue Group
+        queue_group = QGroupBox("Files to Preprocess")
+        queue_layout = QVBoxLayout(queue_group)
+
+        # Drag & Drop Area
+        self.drag_drop = DragDropWidget("Drag & Drop Audio Files Here")
+        self.drag_drop.filesDropped.connect(self.on_files_dropped)
+        queue_layout.addWidget(self.drag_drop)
+
+        # File List
+        self.file_list = QListWidget()
+        self.file_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        queue_layout.addWidget(self.file_list)
+
+        # Buttons Row
+        btn_row = QHBoxLayout()
+        add_btn = QPushButton("Add Files")
+        add_btn.setObjectName("SecondaryBtn")
+        add_btn.clicked.connect(self.on_add_files_clicked)
+        btn_row.addWidget(add_btn)
+
+        clear_btn = QPushButton("Clear List")
+        clear_btn.setObjectName("SecondaryBtn")
+        clear_btn.clicked.connect(self.file_list.clear)
+        btn_row.addWidget(clear_btn)
+
+        queue_layout.addLayout(btn_row)
+
+        right_layout.addWidget(queue_group)
 
         # Progress Bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        main_layout.addWidget(self.progress_bar)
-
-        # Live Logs
-        log_label = QLabel("Live Logs:")
-        log_label.setStyleSheet("font-weight: bold; color: #9ca3af;")
-        main_layout.addWidget(log_label)
-
-        self.log_output = QTextEdit()
-        self.log_output.setReadOnly(True)
-        self.log_output.setMaximumHeight(150)
-        main_layout.addWidget(self.log_output)
+        right_layout.addWidget(self.progress_bar)
 
         # Action Buttons
         action_layout = QHBoxLayout()
@@ -446,7 +464,17 @@ class PreprocessingBase(QWidget):
         self.cancel_btn.clicked.connect(self.on_cancel_clicked)
         action_layout.addWidget(self.cancel_btn)
 
-        main_layout.addLayout(action_layout)
+        right_layout.addLayout(action_layout)
+
+        # Add widgets to splitter
+        splitter.addWidget(left_widget)
+        splitter.addWidget(right_widget)
+        splitter.setSizes([700, 600])  # Left pane slightly larger
+        splitter.setHandleWidth(3)  # Consistent handle width
+        splitter.setCollapsible(0, False)
+        splitter.setCollapsible(1, False)
+
+        main_layout.addWidget(splitter)
 
     def _load_settings(self) -> None:
         """Load preprocessing settings."""
@@ -769,35 +797,63 @@ class PreprocessingView(PreprocessingBase):
         self._add_open_in_new_window_button()
 
     def _add_open_in_new_window_button(self) -> None:
-        """Add 'Open in New Window' button to the header."""
-        # Find the header layout (first item in main layout)
+        """Add 'Open in New Window' button to the right pane header."""
+        # The main layout is now QHBoxLayout containing a splitter
+        # We need to find the splitter, then the right widget, then its layout, then the header
         main_layout = self.layout()
-        if main_layout and main_layout.count() > 1:
-            # Get the header widget
-            header_item = main_layout.itemAt(0)
-            if header_item:
-                header_widget = header_item.widget()
-                if header_widget and isinstance(header_widget, QLabel):
-                    # Create a horizontal layout to hold header and button
-                    header_container = QWidget()
-                    header_layout = QHBoxLayout(header_container)
-                    header_layout.setContentsMargins(0, 0, 0, 0)
+        if not main_layout or main_layout.count() == 0:
+            return
 
-                    # Move header to container
-                    header_widget.setParent(None)
-                    header_layout.addWidget(header_widget)
-                    header_layout.addStretch()
+        # Get the splitter (first item in main layout)
+        splitter_item = main_layout.itemAt(0)
+        if not splitter_item:
+            return
 
-                    # Add "Open in New Window" button
-                    self.open_new_window_btn = QPushButton("Open in New Window")
-                    self.open_new_window_btn.setObjectName("SecondaryBtn")
-                    self.open_new_window_btn.setToolTip("Open a separate preprocessing window for additional files")
-                    self.open_new_window_btn.clicked.connect(self._on_open_new_window_clicked)
-                    header_layout.addWidget(self.open_new_window_btn)
+        splitter = splitter_item.widget()
+        if not splitter or not isinstance(splitter, QSplitter):
+            return
 
-                    # Replace header widget with container
-                    main_layout.removeWidget(header_widget)
-                    main_layout.insertWidget(0, header_container)
+        # Get the right widget (second widget in splitter)
+        if splitter.count() < 2:
+            return
+
+        right_widget = splitter.widget(1)
+        if not right_widget:
+            return
+
+        right_layout = right_widget.layout()
+        if not right_layout or right_layout.count() == 0:
+            return
+
+        # Get the header (first item in right layout)
+        header_item = right_layout.itemAt(0)
+        if not header_item:
+            return
+
+        header_widget = header_item.widget()
+        if not header_widget or not isinstance(header_widget, QLabel):
+            return
+
+        # Create a horizontal layout to hold header and button
+        header_container = QWidget()
+        header_layout = QHBoxLayout(header_container)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Move header to container
+        header_widget.setParent(None)
+        header_layout.addWidget(header_widget)
+        header_layout.addStretch()
+
+        # Add "Open in New Window" button
+        self.open_new_window_btn = QPushButton("Open in New Window")
+        self.open_new_window_btn.setObjectName("SecondaryBtn")
+        self.open_new_window_btn.setToolTip("Open a separate preprocessing window for additional files")
+        self.open_new_window_btn.clicked.connect(self._on_open_new_window_clicked)
+        header_layout.addWidget(self.open_new_window_btn)
+
+        # Replace header widget with container in right layout
+        right_layout.removeWidget(header_widget)
+        right_layout.insertWidget(0, header_container)
 
     def _on_open_new_window_clicked(self) -> None:
         """Handle 'Open in New Window' button click."""

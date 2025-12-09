@@ -50,7 +50,7 @@ MEDIA_FILTER = (
 )
 DEFAULT_WIDTH = 1300
 DEFAULT_HEIGHT = 800
-APP_VERSION = "v1.1.3"
+APP_VERSION = "v2.1.3"
 
 LANGUAGE_MAP = {
     "Auto Detect": "Auto",
@@ -232,7 +232,7 @@ class TranscriptionView(QWidget):
         # --- Left Pane: Controls ---
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(20, 20, 20, 20)
+        left_layout.setContentsMargins(20, 20, 10, 20)
         left_layout.setSpacing(15)
 
         # Header
@@ -355,13 +355,10 @@ class TranscriptionView(QWidget):
         self.log_output.setReadOnly(True)
         left_layout.addWidget(self.log_output)
 
-        # Spacer
-        left_layout.addStretch()
-
         # --- Right Pane: Queue & Controls ---
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
-        right_layout.setContentsMargins(20, 20, 20, 20)
+        right_layout.setContentsMargins(10, 20, 20, 20)
 
         # 2. Files Queue
         queue_group = QGroupBox("2. Files to Transcribe")
@@ -451,7 +448,8 @@ class TranscriptionView(QWidget):
         # Add widgets to splitter
         splitter.addWidget(left_widget)
         splitter.addWidget(right_widget)
-        splitter.setSizes([500, 700])
+        splitter.setSizes([700, 600])
+        splitter.setHandleWidth(3)  # Consistent handle width
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
 
