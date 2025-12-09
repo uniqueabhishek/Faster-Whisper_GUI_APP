@@ -246,8 +246,8 @@ class Transcriber:
             # Use Popen to allow cancellation
             process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 creationflags=subprocess.CREATE_NO_WINDOW
             )
 
@@ -270,8 +270,7 @@ class Transcriber:
                 time.sleep(0.1)
 
             if process.returncode != 0:
-                stderr = process.stderr.read().decode()
-                LOGGER.warning("ffmpeg failed: %s", stderr)
+                LOGGER.warning("ffmpeg failed with return code: %d", process.returncode)
                 return None
 
             LOGGER.info("Audio repair successful.")

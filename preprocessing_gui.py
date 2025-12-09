@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 import tempfile
 
-from PyQt5.QtCore import Qt, QSettings
+from PyQt5.QtCore import Qt, QSettings, pyqtSignal
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -32,6 +32,13 @@ from PyQt5.QtWidgets import (
 from styles import DARK_THEME_QSS, apply_dark_title_bar
 from audio_processor import PreprocessingConfig
 from preprocessing_worker import PreprocessingWorker
+from preprocessing_config_dialogs import (
+    NoiseReductionConfigDialog,
+    MusicRemovalConfigDialog,
+    NormalizationConfigDialog,
+    VADConfigDialog,
+    WAVConfigDialog
+)
 
 # Import DragDropWidget and other utilities from gui
 # We'll need to import from gui after modifying it
@@ -138,23 +145,17 @@ class DragDropWidget(QFrame):
             self.filesDropped.emit(paths)
 
 
-class PreprocessingWindow(QMainWindow):
-    """Preprocessing window - first window user sees."""
+class PreprocessingBase(QWidget):
+    """Base class for preprocessing functionality (embeddable)."""
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.setWindowTitle("Audio Preprocessing - Faster-Whisper GUI")
+    # Signals
+    transcription_requested = pyqtSignal(list)  # List[Path]
+    open_separate_window_requested = pyqtSignal()
 
-        # Apply Dark Theme
-        app = QApplication.instance()
-        if app:
-            app.setStyleSheet(DARK_THEME_QSS)
-
-        # Apply Windows Dark Title Bar
-        apply_dark_title_bar(int(self.winId()))
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
 
         self._worker: Optional[PreprocessingWorker] = None
-        self._transcription_window = None  # Will hold reference to TranscriptionWindow
 
         # UI Components
         self.file_list: QListWidget
@@ -175,20 +176,35 @@ class PreprocessingWindow(QMainWindow):
         # Settings
         self.settings = QSettings("FasterWhisperGUI", "Preprocessing")
 
+        # Configuration storage for each feature
+        self.noise_config = {
+            'noise_reduction_nr': 12.0,
+            'noise_reduction_nf': -25.0,
+            'noise_reduction_gs': 3,
+        }
+        self.music_config = {
+            'music_highpass_freq': 200,
+            'music_lowpass_freq': 3500,
+        }
+        self.normalize_config = {
+            'normalize_target_db': -20.0,
+            'normalize_true_peak': -1.5,
+            'normalize_loudness_range': 11,
+        }
+        self.vad_config = {
+            'vad_min_silence_ms': 3000,
+            'vad_speech_pad_ms': 1000,
+            'vad_threshold': 0.1,
+        }
+        self.wav_config = {
+            'wav_sample_rate': 16000,
+            'wav_channels': 1,
+            'wav_bit_depth': 16,
+        }
+
         self._build_ui()
         self._setup_logging()
         self._load_settings()
-
-        self.resize(DEFAULT_WIDTH, DEFAULT_HEIGHT)
-        self._center_window()
-
-    def _center_window(self) -> None:
-        """Centers the window on the screen."""
-        frame_gm = self.frameGeometry()
-        screen = QApplication.desktop().screenNumber(QApplication.desktop().cursor().pos())
-        center_point = QApplication.desktop().screenGeometry(screen).center()
-        frame_gm.moveCenter(center_point)
-        self.move(frame_gm.topLeft())
 
     def _setup_logging(self) -> None:
         """Redirect logging to the GUI text area."""
@@ -196,8 +212,7 @@ class PreprocessingWindow(QMainWindow):
         logging.getLogger().addHandler(handler)
 
     def _build_ui(self) -> None:
-        central = QWidget(self)
-        main_layout = QVBoxLayout(central)
+        main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
 
@@ -240,44 +255,82 @@ class PreprocessingWindow(QMainWindow):
         options_layout = QVBoxLayout(options_group)
         options_layout.setSpacing(10)
 
-        # Convert to WAV checkbox (always enabled, cannot be unchecked)
-        self.convert_check = QCheckBox("1. Convert to WAV/16kHz Mono (Always Active)")
-        self.convert_check.setToolTip("Convert audio to 16kHz mono WAV format - required for Whisper AI\nThis option is always enabled and cannot be disabled.")
+        # Convert to WAV checkbox (with settings button)
+        convert_row = QHBoxLayout()
+
+        self.convert_check = QCheckBox("1. Convert to WAV (Always Active)")
+        self.convert_check.setToolTip("Convert audio to WAV format - required for Whisper AI\nThis option is always enabled and cannot be disabled.\nClick ⚙ to configure sample rate, channels, and bit depth.")
         self.convert_check.setChecked(True)
-        self.convert_check.setEnabled(False)  # Make it non-editable
-        # Style to make checkbox blue while keeping text white like other checkboxes
+        self.convert_check.setEnabled(False)
         self.convert_check.setStyleSheet("""
             QCheckBox:disabled {
-                color: #ffffff;  /* White text color - same as other checkboxes */
+                color: #ffffff;
             }
             QCheckBox::indicator:disabled:checked {
-                background-color: #3b82f6;  /* Blue checkbox background */
-                border: 2px solid #2563eb;  /* Darker blue border */
+                background-color: #3b82f6;
+                border: 2px solid #2563eb;
             }
         """)
-        options_layout.addWidget(self.convert_check)
+        convert_row.addWidget(self.convert_check)
+        convert_row.addStretch()
 
-        # Remove noise checkbox (Step 2 - works best on full spectrum)
+        convert_settings_btn = QPushButton("⚙")
+        convert_settings_btn.setObjectName("SettingsBtn")
+        convert_settings_btn.setFixedSize(30, 30)
+        convert_settings_btn.setToolTip("Configure WAV conversion parameters")
+        convert_settings_btn.clicked.connect(self._on_wav_settings_clicked)
+        convert_row.addWidget(convert_settings_btn)
+
+        options_layout.addLayout(convert_row)
+
+        # Remove noise checkbox (with settings button)
+        noise_row = QHBoxLayout()
+
         self.noise_check = QCheckBox("2. Remove Background Noise")
-        self.noise_check.setToolTip("Apply FFT-based noise reduction filter\nWorks best on full spectrum before frequency filtering")
-        options_layout.addWidget(self.noise_check)
+        self.noise_check.setToolTip("Apply FFT-based noise reduction filter\nWorks best on full spectrum before frequency filtering\nClick ⚙ to configure noise reduction strength, noise floor, and artifact reduction.")
+        noise_row.addWidget(self.noise_check)
+        noise_row.addStretch()
 
-        # Remove music checkbox (Step 3 - before normalization)
+        noise_settings_btn = QPushButton("⚙")
+        noise_settings_btn.setObjectName("SettingsBtn")
+        noise_settings_btn.setFixedSize(30, 30)
+        noise_settings_btn.setToolTip("Configure noise reduction parameters")
+        noise_settings_btn.clicked.connect(self._on_noise_settings_clicked)
+        noise_row.addWidget(noise_settings_btn)
+
+        options_layout.addLayout(noise_row)
+
+        # Remove music checkbox (with settings button)
+        music_row = QHBoxLayout()
+
         self.music_check = QCheckBox("3. Remove Background Music")
         self.music_check.setToolTip(
             "Isolate speech frequencies using bandpass filter (200Hz-3500Hz)\n"
             "Removes bass/music <200Hz and high frequencies >3500Hz\n"
-            "Applied before normalization for accurate speech-only loudness measurement"
+            "Applied before normalization for accurate speech-only loudness measurement\n"
+            "Click ⚙ to configure high-pass and low-pass filter frequencies."
         )
-        options_layout.addWidget(self.music_check)
+        music_row.addWidget(self.music_check)
+        music_row.addStretch()
 
-        # Normalize audio checkbox with slider (Step 4 - after filtering)
+        music_settings_btn = QPushButton("⚙")
+        music_settings_btn.setObjectName("SettingsBtn")
+        music_settings_btn.setFixedSize(30, 30)
+        music_settings_btn.setToolTip("Configure music removal filter frequencies")
+        music_settings_btn.clicked.connect(self._on_music_settings_clicked)
+        music_row.addWidget(music_settings_btn)
+
+        options_layout.addLayout(music_row)
+
+        # Normalize audio checkbox with settings button and slider
         normalize_layout = QHBoxLayout()
+
         self.normalize_check = QCheckBox("4. Normalize Audio Volume")
         self.normalize_check.setToolTip(
             "Normalize volume to consistent level using EBU R128 standard\n"
             "Applied after filtering to measure speech-band loudness accurately\n"
-            "Target: -20 LUFS (broadcast speech standard)"
+            "Target: -20 LUFS (broadcast speech standard)\n"
+            "Click ⚙ to configure target loudness, true peak, and loudness range."
         )
         self.normalize_check.stateChanged.connect(self._on_normalize_toggled)
         normalize_layout.addWidget(self.normalize_check)
@@ -293,32 +346,38 @@ class PreprocessingWindow(QMainWindow):
         self.db_slider.setEnabled(False)
         self.db_slider.valueChanged.connect(self._on_db_changed)
         normalize_layout.addWidget(self.db_slider)
-        normalize_layout.setStretch(2, 1)  # Make slider expand
+        normalize_layout.setStretch(3, 1)  # Make slider expand
+
+        normalize_settings_btn = QPushButton("⚙")
+        normalize_settings_btn.setObjectName("SettingsBtn")
+        normalize_settings_btn.setFixedSize(30, 30)
+        normalize_settings_btn.setToolTip("Configure normalization parameters (target loudness, true peak, loudness range)")
+        normalize_settings_btn.clicked.connect(self._on_normalize_settings_clicked)
+        normalize_layout.addWidget(normalize_settings_btn)
 
         options_layout.addLayout(normalize_layout)
 
-        # Trim silence checkbox (Step 5 - LAST, after all processing)
+        # Trim silence checkbox (with settings button)
+        trim_row = QHBoxLayout()
+
         self.trim_check = QCheckBox("5. Trim Silence (VAD)")
         self.trim_check.setToolTip(
             "Use Voice Activity Detection to remove ALL silence segments\n"
             "Concatenates detected speech segments, removing silence from anywhere in audio\n"
-            "Applied LAST - works best on normalized, clean speech\n\n"
-            "VAD Configuration:\n"
-            "• min_silence_duration_ms=3000 (3 seconds)\n"
-            "  - Minimum silence duration required to split audio\n"
-            "  - Only silences longer than 3s will be removed\n"
-            "  - More aggressive silence removal for long pauses\n\n"
-            "• speech_pad_ms=1000 (1 second)\n"
-            "  - Padding added before and after detected speech\n"
-            "  - Adds 1s buffer on each side of detected speech\n"
-            "  - Prevents cutting off beginning/end of words\n\n"
-            "• threshold=0.1 (10% confidence)\n"
-            "  - Probability threshold for speech detection\n"
-            "  - Audio with >10% probability of speech is kept\n"
-            "  - Very sensitive - may include some background noise\n\n"
-            "Why last? Normalized amplitude ensures reliable threshold-based detection"
+            "Applied LAST - works best on normalized, clean speech\n"
+            "Click ⚙ to configure min silence duration, speech padding, and detection threshold."
         )
-        options_layout.addWidget(self.trim_check)
+        trim_row.addWidget(self.trim_check)
+        trim_row.addStretch()
+
+        trim_settings_btn = QPushButton("⚙")
+        trim_settings_btn.setObjectName("SettingsBtn")
+        trim_settings_btn.setFixedSize(30, 30)
+        trim_settings_btn.setToolTip("Configure VAD silence trimming parameters")
+        trim_settings_btn.clicked.connect(self._on_vad_settings_clicked)
+        trim_row.addWidget(trim_settings_btn)
+
+        options_layout.addLayout(trim_row)
 
         main_layout.addWidget(options_group)
 
@@ -389,8 +448,6 @@ class PreprocessingWindow(QMainWindow):
 
         main_layout.addLayout(action_layout)
 
-        self.setCentralWidget(central)
-
     def _load_settings(self) -> None:
         """Load preprocessing settings."""
         self.convert_check.setChecked(self.settings.value("convert_wav", True, type=bool))
@@ -406,6 +463,29 @@ class PreprocessingWindow(QMainWindow):
         if output_dir and Path(output_dir).exists():
             self.output_edit.setText(output_dir)
 
+        # Load configuration dictionaries
+        saved_noise = self.settings.value("noise_config")
+        if saved_noise and isinstance(saved_noise, dict):
+            self.noise_config.update(saved_noise)
+
+        saved_music = self.settings.value("music_config")
+        if saved_music and isinstance(saved_music, dict):
+            self.music_config.update(saved_music)
+
+        saved_normalize = self.settings.value("normalize_config")
+        if saved_normalize and isinstance(saved_normalize, dict):
+            self.normalize_config.update(saved_normalize)
+            # Update slider to reflect loaded config
+            self.db_slider.setValue(int(saved_normalize.get('normalize_target_db', -20)))
+
+        saved_vad = self.settings.value("vad_config")
+        if saved_vad and isinstance(saved_vad, dict):
+            self.vad_config.update(saved_vad)
+
+        saved_wav = self.settings.value("wav_config")
+        if saved_wav and isinstance(saved_wav, dict):
+            self.wav_config.update(saved_wav)
+
         self._on_normalize_toggled()
 
     def _save_settings(self) -> None:
@@ -418,6 +498,13 @@ class PreprocessingWindow(QMainWindow):
         self.settings.setValue("target_db", self.db_slider.value())
         self.settings.setValue("output_dir", self.output_edit.text())
 
+        # Save configuration dictionaries
+        self.settings.setValue("noise_config", self.noise_config)
+        self.settings.setValue("music_config", self.music_config)
+        self.settings.setValue("normalize_config", self.normalize_config)
+        self.settings.setValue("vad_config", self.vad_config)
+        self.settings.setValue("wav_config", self.wav_config)
+
     def _on_normalize_toggled(self) -> None:
         """Enable/disable dB slider based on normalize checkbox."""
         self.db_slider.setEnabled(self.normalize_check.isChecked())
@@ -425,6 +512,70 @@ class PreprocessingWindow(QMainWindow):
     def _on_db_changed(self, value: int) -> None:
         """Update dB label when slider changes."""
         self.db_label.setText(f"{value} dB")
+        # Also update the config
+        self.normalize_config['normalize_target_db'] = float(value)
+
+    # Settings button click handlers
+    def _on_wav_settings_clicked(self) -> None:
+        """Open WAV conversion configuration dialog."""
+        dialog = WAVConfigDialog(
+            self,
+            current_sample_rate=self.wav_config['wav_sample_rate'],
+            current_channels=self.wav_config['wav_channels'],
+            current_bit_depth=self.wav_config['wav_bit_depth']
+        )
+        if dialog.exec_() == 2:  # QDialog.Accepted
+            self.wav_config.update(dialog.get_values())
+            LOGGER.info("WAV conversion config updated: %s", self.wav_config)
+
+    def _on_noise_settings_clicked(self) -> None:
+        """Open noise reduction configuration dialog."""
+        dialog = NoiseReductionConfigDialog(
+            self,
+            current_nr=self.noise_config['noise_reduction_nr'],
+            current_nf=self.noise_config['noise_reduction_nf'],
+            current_gs=self.noise_config['noise_reduction_gs']
+        )
+        if dialog.exec_() == 2:  # QDialog.Accepted
+            self.noise_config.update(dialog.get_values())
+            LOGGER.info("Noise reduction config updated: %s", self.noise_config)
+
+    def _on_music_settings_clicked(self) -> None:
+        """Open music removal configuration dialog."""
+        dialog = MusicRemovalConfigDialog(
+            self,
+            current_highpass=self.music_config['music_highpass_freq'],
+            current_lowpass=self.music_config['music_lowpass_freq']
+        )
+        if dialog.exec_() == 2:  # QDialog.Accepted
+            self.music_config.update(dialog.get_values())
+            LOGGER.info("Music removal config updated: %s", self.music_config)
+
+    def _on_normalize_settings_clicked(self) -> None:
+        """Open normalization configuration dialog."""
+        dialog = NormalizationConfigDialog(
+            self,
+            current_target=self.normalize_config['normalize_target_db'],
+            current_tp=self.normalize_config['normalize_true_peak'],
+            current_lra=self.normalize_config['normalize_loudness_range']
+        )
+        if dialog.exec_() == 2:  # QDialog.Accepted
+            self.normalize_config.update(dialog.get_values())
+            # Update the slider and label to reflect the new target_db
+            self.db_slider.setValue(int(self.normalize_config['normalize_target_db']))
+            LOGGER.info("Normalization config updated: %s", self.normalize_config)
+
+    def _on_vad_settings_clicked(self) -> None:
+        """Open VAD configuration dialog."""
+        dialog = VADConfigDialog(
+            self,
+            current_min_silence=self.vad_config['vad_min_silence_ms'],
+            current_speech_pad=self.vad_config['vad_speech_pad_ms'],
+            current_threshold=self.vad_config['vad_threshold']
+        )
+        if dialog.exec_() == 2:  # QDialog.Accepted
+            self.vad_config.update(dialog.get_values())
+            LOGGER.info("VAD config updated: %s", self.vad_config)
 
     def _add_file_item(self, path: str) -> None:
         """Helper to add a file item with numbering."""
@@ -499,7 +650,22 @@ class PreprocessingWindow(QMainWindow):
             normalize_audio=self.normalize_check.isChecked(),
             reduce_noise=self.noise_check.isChecked(),
             remove_music=self.music_check.isChecked(),
-            target_db=float(self.db_slider.value()),
+
+            # Noise reduction parameters
+            **self.noise_config,
+
+            # Music removal parameters
+            **self.music_config,
+
+            # Normalization parameters
+            **self.normalize_config,
+
+            # VAD parameters
+            **self.vad_config,
+
+            # WAV conversion parameters
+            **self.wav_config,
+
             output_dir=output_dir
         )
 
@@ -516,7 +682,7 @@ class PreprocessingWindow(QMainWindow):
 
     def on_skip_preprocessing_clicked(self) -> None:
         """Handle Skip Preprocessing button click."""
-        self._open_transcription_window([])
+        self.transcription_requested.emit([])
 
     def on_cancel_clicked(self) -> None:
         """Handle Cancel button click."""
@@ -551,8 +717,8 @@ class PreprocessingWindow(QMainWindow):
         self._set_busy(False)
         self._worker = None
 
-        # Open transcription window with preprocessed files
-        self._open_transcription_window(preprocessed_files)
+        # Emit signal with processed files (subclasses will handle)
+        self.transcription_requested.emit(preprocessed_files)
 
     def on_preprocessing_failed(self, message: str) -> None:
         """Handle preprocessing failure."""
@@ -562,19 +728,6 @@ class PreprocessingWindow(QMainWindow):
 
         if message != "Cancelled":
             QMessageBox.critical(self, "Error", f"Preprocessing failed:\n{message}")
-
-    def _open_transcription_window(self, initial_files: List[Path]) -> None:
-        """Open the transcription window and close this window."""
-        from gui import TranscriptionWindow
-
-        LOGGER.info("Opening transcription window with %d files...", len(initial_files))
-
-        # Create transcription window
-        self._transcription_window = TranscriptionWindow(initial_files=initial_files)
-        self._transcription_window.show()
-
-        # Close preprocessing window
-        self.close()
 
     def _set_busy(self, busy: bool) -> None:
         """Set UI to busy/idle state."""
@@ -589,3 +742,134 @@ class PreprocessingWindow(QMainWindow):
         self.noise_check.setEnabled(not busy)
         self.music_check.setEnabled(not busy)
         self.db_slider.setEnabled(not busy and self.normalize_check.isChecked())
+
+    def set_read_only(self, read_only: bool) -> None:
+        """Set preprocessing view to read-only mode."""
+        # Disable file selection
+        self.drag_drop.setVisible(not read_only)
+        self.file_list.setEnabled(not read_only)
+
+        # Disable preprocessing options
+        self.start_btn.setEnabled(not read_only)
+        self.skip_btn.setEnabled(not read_only)
+        self.convert_check.setEnabled(not read_only)
+        self.trim_check.setEnabled(not read_only)
+        self.normalize_check.setEnabled(not read_only)
+        self.noise_check.setEnabled(not read_only)
+        self.music_check.setEnabled(not read_only)
+        self.db_slider.setEnabled(not read_only)
+
+
+class PreprocessingView(PreprocessingBase):
+    """Embedded preprocessing view (for use in MainWindow)."""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        # Add "Open in New Window" button to header
+        self._add_open_in_new_window_button()
+
+    def _add_open_in_new_window_button(self) -> None:
+        """Add 'Open in New Window' button to the header."""
+        # Find the header layout (first item in main layout)
+        main_layout = self.layout()
+        if main_layout and main_layout.count() > 1:
+            # Get the header widget
+            header_item = main_layout.itemAt(0)
+            if header_item:
+                header_widget = header_item.widget()
+                if header_widget and isinstance(header_widget, QLabel):
+                    # Create a horizontal layout to hold header and button
+                    header_container = QWidget()
+                    header_layout = QHBoxLayout(header_container)
+                    header_layout.setContentsMargins(0, 0, 0, 0)
+
+                    # Move header to container
+                    header_widget.setParent(None)
+                    header_layout.addWidget(header_widget)
+                    header_layout.addStretch()
+
+                    # Add "Open in New Window" button
+                    self.open_new_window_btn = QPushButton("Open in New Window")
+                    self.open_new_window_btn.setObjectName("SecondaryBtn")
+                    self.open_new_window_btn.setToolTip("Open a separate preprocessing window for additional files")
+                    self.open_new_window_btn.clicked.connect(self._on_open_new_window_clicked)
+                    header_layout.addWidget(self.open_new_window_btn)
+
+                    # Replace header widget with container
+                    main_layout.removeWidget(header_widget)
+                    main_layout.insertWidget(0, header_container)
+
+    def _on_open_new_window_clicked(self) -> None:
+        """Handle 'Open in New Window' button click."""
+        self.open_separate_window_requested.emit()
+
+
+class PreprocessingWindow(QMainWindow):
+    """Standalone preprocessing window."""
+
+    preprocessing_completed = pyqtSignal(list)  # List[Path]
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Audio Preprocessing - New Window")
+        self.setWindowFlags(Qt.Window)  # Make it a proper window
+
+        # Apply Dark Theme
+        app = QApplication.instance()
+        if app:
+            settings_btn_style = """
+                QPushButton#SettingsBtn {
+                    background-color: #3b82f6;
+                    color: white;
+                    border: none;
+                    border-radius: 15px;
+                    font-size: 16px;
+                    font-weight: bold;
+                }
+                QPushButton#SettingsBtn:hover {
+                    background-color: #2563eb;
+                }
+                QPushButton#SettingsBtn:pressed {
+                    background-color: #1d4ed8;
+                }
+            """
+            app.setStyleSheet(DARK_THEME_QSS + settings_btn_style)
+
+        # Apply Windows Dark Title Bar
+        apply_dark_title_bar(int(self.winId()))
+
+        # Embed PreprocessingBase
+        self._view = PreprocessingBase(parent=self)
+        self.setCentralWidget(self._view)
+
+        # Connect signal
+        self._view.transcription_requested.connect(self._on_transcription_requested)
+
+        self.resize(DEFAULT_WIDTH, DEFAULT_HEIGHT)
+        self._center_window()
+
+    def _center_window(self) -> None:
+        """Centers the window on the screen."""
+        frame_gm = self.frameGeometry()
+        screen = QApplication.desktop().screenNumber(QApplication.desktop().cursor().pos())
+        center_point = QApplication.desktop().screenGeometry(screen).center()
+        frame_gm.moveCenter(center_point)
+        self.move(frame_gm.topLeft())
+
+    def _on_transcription_requested(self, files: List[Path]) -> None:
+        """Handle transcription request from embedded view."""
+        if files:
+            # Show dialog: "Add to transcription queue?"
+            reply = QMessageBox.question(
+                self,
+                'Add to Queue',
+                f'Add {len(files)} processed files to transcription queue?',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+
+            if reply == QMessageBox.Yes:
+                self.preprocessing_completed.emit(files)
+
+        # Close window regardless of choice
+        self.close()

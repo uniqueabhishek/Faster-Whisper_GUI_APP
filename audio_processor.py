@@ -24,41 +24,82 @@ except ImportError:
 @dataclass
 class PreprocessingConfig:
     """Configuration for audio preprocessing operations."""
+    # Enable/disable flags
     convert_to_wav: bool = True
     trim_silence: bool = False
     normalize_audio: bool = False
     reduce_noise: bool = False
     remove_music: bool = False
-    target_db: float = -20.0
+
+    # Noise Reduction parameters
+    noise_reduction_nr: float = 12.0      # Noise reduction strength (dB)
+    noise_reduction_nf: float = -25.0     # Noise floor (dB)
+    noise_reduction_gs: int = 3           # Gain smoothing (0-10)
+
+    # Music Removal parameters
+    music_highpass_freq: int = 200        # High-pass filter cutoff (Hz)
+    music_lowpass_freq: int = 3500        # Low-pass filter cutoff (Hz)
+
+    # Normalization parameters
+    normalize_target_db: float = -20.0    # Target loudness (LUFS)
+    normalize_true_peak: float = -1.5     # True peak limit (dB)
+    normalize_loudness_range: int = 11    # Loudness range
+
+    # VAD parameters
+    vad_min_silence_ms: int = 3000        # Min silence duration (ms)
+    vad_speech_pad_ms: int = 1000         # Speech padding (ms)
+    vad_threshold: float = 0.1            # Detection threshold
+
+    # WAV Conversion parameters
+    wav_sample_rate: int = 16000          # Sample rate (Hz)
+    wav_channels: int = 1                 # Channels (1=mono, 2=stereo)
+    wav_bit_depth: int = 16               # Bit depth (16, 24, or 32)
+
     output_dir: Optional[Path] = None
 
 
 def convert_to_wav_16khz_mono(
     input_path: Path,
     output_path: Path,
+    sample_rate: int = 16000,
+    channels: int = 1,
+    bit_depth: int = 16,
     cancel_check: Optional[Callable[[], bool]] = None
 ) -> bool:
     """
-    Convert any audio format to 16kHz mono WAV using ffmpeg.
+    Convert any audio format to WAV using ffmpeg with configurable parameters.
 
     Args:
         input_path: Path to input audio file
         output_path: Path where converted WAV will be saved
+        sample_rate: Target sample rate in Hz (default: 16000)
+        channels: Number of audio channels - 1=mono, 2=stereo (default: 1)
+        bit_depth: Bit depth - 16, 24, or 32 (default: 16)
         cancel_check: Optional callable that returns True if cancellation is requested
 
     Returns:
         True if successful, False otherwise
     """
     try:
-        LOGGER.info("Converting %s to 16kHz mono WAV...", input_path.name)
+        LOGGER.info("Converting %s to %dHz %s %d-bit WAV...",
+                   input_path.name, sample_rate,
+                   "mono" if channels == 1 else "stereo", bit_depth)
 
-        # ffmpeg -i input -ar 16000 -ac 1 -c:a pcm_s16le output.wav
+        # Map bit depth to codec
+        codec_map = {
+            16: "pcm_s16le",
+            24: "pcm_s24le",
+            32: "pcm_s32le"
+        }
+        codec = codec_map.get(bit_depth, "pcm_s16le")
+
+        # ffmpeg -i input -ar <sample_rate> -ac <channels> -c:a <codec> output.wav
         cmd = [
             "ffmpeg", "-y",
             "-i", str(input_path),
-            "-ar", "16000",
-            "-ac", "1",
-            "-c:a", "pcm_s16le",
+            "-ar", str(sample_rate),
+            "-ac", str(channels),
+            "-c:a", codec,
             str(output_path)
         ]
 
@@ -105,22 +146,27 @@ def normalize_audio(
     input_path: Path,
     output_path: Path,
     target_db: float = -20.0,
+    true_peak: float = -1.5,
+    loudness_range: int = 11,
     cancel_check: Optional[Callable[[], bool]] = None
 ) -> bool:
     """
-    Normalize audio volume to target dB using ffmpeg loudnorm filter.
+    Normalize audio volume using ffmpeg loudnorm filter (EBU R128 standard).
 
     Args:
         input_path: Path to input audio file
         output_path: Path where normalized audio will be saved
         target_db: Target integrated loudness in LUFS (default: -20.0)
+        true_peak: True peak limit in dB (default: -1.5)
+        loudness_range: Loudness range target (default: 11)
         cancel_check: Optional callable that returns True if cancellation is requested
 
     Returns:
         True if successful, False otherwise
     """
     try:
-        LOGGER.info("Normalizing %s to %s dB...", input_path.name, target_db)
+        LOGGER.info("Normalizing %s to %s LUFS (TP: %s, LRA: %s)...",
+                   input_path.name, target_db, true_peak, loudness_range)
 
         # ffmpeg loudnorm filter for EBU R128 normalization
         # I = integrated loudness target
@@ -129,7 +175,7 @@ def normalize_audio(
         cmd = [
             "ffmpeg", "-y",
             "-i", str(input_path),
-            "-af", f"loudnorm=I={target_db}:TP=-1.5:LRA=11",
+            "-af", f"loudnorm=I={target_db}:TP={true_peak}:LRA={loudness_range}",
             str(output_path)
         ]
 
@@ -172,28 +218,38 @@ def normalize_audio(
 def reduce_noise(
     input_path: Path,
     output_path: Path,
+    noise_reduction: float = 12.0,
+    noise_floor: float = -25.0,
+    gain_smooth: int = 3,
     cancel_check: Optional[Callable[[], bool]] = None
 ) -> bool:
     """
-    Apply noise reduction using ffmpeg afftdn filter.
+    Apply noise reduction using ffmpeg afftdn filter (FFT-based adaptive denoiser).
 
     Args:
         input_path: Path to input audio file
         output_path: Path where denoised audio will be saved
+        noise_reduction: Noise reduction strength in dB (default: 12.0, range: 5-30)
+        noise_floor: Noise floor threshold in dB (default: -25.0, range: -50 to -20)
+        gain_smooth: Gain smoothing/artifact reduction (default: 3, range: 0-10)
         cancel_check: Optional callable that returns True if cancellation is requested
 
     Returns:
         True if successful, False otherwise
     """
     try:
-        LOGGER.info("Reducing noise in %s...", input_path.name)
+        LOGGER.info("Reducing noise in %s (nr=%s, nf=%s, gs=%s)...",
+                   input_path.name, noise_reduction, noise_floor, gain_smooth)
 
         # afftdn = FFT Denoiser
-        # nf = noise floor in dB (default: -50, we use -25 for moderate noise reduction)
+        # nr = noise reduction strength (dB)
+        # nf = noise floor threshold (dB)
+        # gs = gain smoothing for artifact reduction
+        filter_str = f"afftdn=nr={noise_reduction}:nf={noise_floor}:gs={gain_smooth}"
         cmd = [
             "ffmpeg", "-y",
             "-i", str(input_path),
-            "-af", "afftdn=nf=-25",
+            "-af", filter_str,
             str(output_path)
         ]
 
@@ -236,33 +292,37 @@ def reduce_noise(
 def remove_music(
     input_path: Path,
     output_path: Path,
+    highpass_freq: int = 200,
+    lowpass_freq: int = 3500,
     cancel_check: Optional[Callable[[], bool]] = None
 ) -> bool:
     """
-    Remove background music using ffmpeg highpass filter to isolate speech frequencies.
+    Remove background music using ffmpeg bandpass filter to isolate speech frequencies.
 
     This uses a combination of filters to suppress music while preserving speech:
-    - High-pass filter to remove low-frequency music
-    - Band-pass filter to focus on speech frequencies (200Hz-3500Hz)
+    - High-pass filter to remove low-frequency music/bass
+    - Low-pass filter to remove high frequencies outside speech range
 
     Args:
         input_path: Path to input audio file
         output_path: Path where processed audio will be saved
+        highpass_freq: High-pass filter cutoff in Hz (default: 200, range: 80-300)
+        lowpass_freq: Low-pass filter cutoff in Hz (default: 3500, range: 3000-4000)
         cancel_check: Optional callable that returns True if cancellation is requested
 
     Returns:
         True if successful, False otherwise
     """
     try:
-        LOGGER.info("Removing background music from %s...", input_path.name)
+        LOGGER.info("Removing background music from %s (HPF: %dHz, LPF: %dHz)...",
+                   input_path.name, highpass_freq, lowpass_freq)
 
         # Use a combination of filters to isolate speech frequencies:
-        # 1. highpass=f=200: Remove frequencies below 200Hz (removes bass/low music)
-        # 2. lowpass=f=3500: Remove frequencies above 3500Hz (human speech range)
-        # 3. Optional: bandreject to remove specific music frequency ranges
+        # 1. highpass=f=<freq>: Remove frequencies below threshold (removes bass/low music)
+        # 2. lowpass=f=<freq>: Remove frequencies above threshold (human speech range)
 
         # Speech-optimized filter chain
-        filter_chain = "highpass=f=200,lowpass=f=3500"
+        filter_chain = f"highpass=f={highpass_freq},lowpass=f={lowpass_freq}"
 
         cmd = [
             "ffmpeg", "-y",
@@ -310,23 +370,30 @@ def remove_music(
 def trim_silence_vad(
     input_path: Path,
     output_path: Path,
+    min_silence_ms: int = 3000,
+    speech_pad_ms: int = 1000,
+    threshold: float = 0.1,
     cancel_check: Optional[Callable[[], bool]] = None
 ) -> bool:
     """
-    Use VAD (Voice Activity Detection) to remove ALL silence segments from audio.
+    Use VAD (Voice Activity Detection) to remove silence segments from audio.
     This concatenates all detected speech segments, removing silence from anywhere in the audio.
     Reuses the existing silero_vad.onnx model.
 
     Args:
         input_path: Path to input audio file
         output_path: Path where trimmed audio will be saved
+        min_silence_ms: Minimum silence duration to remove in ms (default: 3000)
+        speech_pad_ms: Speech padding/buffer in ms (default: 1000)
+        threshold: Speech detection threshold 0.0-1.0 (default: 0.1)
         cancel_check: Optional callable that returns True if cancellation is requested
 
     Returns:
         True if successful, False otherwise
     """
     try:
-        LOGGER.info("Trimming silence from %s using VAD...", input_path.name)
+        LOGGER.info("Trimming silence from %s using VAD (min_silence=%dms, pad=%dms, threshold=%.2f)...",
+                   input_path.name, min_silence_ms, speech_pad_ms, threshold)
 
         # Import dependencies for VAD
         try:
@@ -364,14 +431,11 @@ def trim_silence_vad(
         if cancel_check and cancel_check():
             return False
 
-        # Configure VAD options as documented in preprocessing_gui.py tooltip
-        # - min_silence_duration_ms=3000 (3 seconds) - Only remove silences longer than 3s
-        # - speech_pad_ms=1000 (1 second) - Add 1s padding before/after speech
-        # - threshold=0.1 (10% confidence) - Very sensitive detection
+        # Configure VAD options with user-specified parameters
         vad_options = VadOptions(
-            min_silence_duration_ms=3000,
-            speech_pad_ms=1000,
-            threshold=0.1
+            min_silence_duration_ms=min_silence_ms,
+            speech_pad_ms=speech_pad_ms,
+            threshold=threshold
         )
 
         # Get speech timestamps using proper VAD function
@@ -469,8 +533,8 @@ def _trim_silence_ffmpeg(
 
         process = subprocess.Popen(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             creationflags=subprocess.CREATE_NO_WINDOW
         )
 
@@ -492,8 +556,7 @@ def _trim_silence_ffmpeg(
             time.sleep(0.1)
 
         if process.returncode != 0:
-            stderr = process.stderr.read().decode()
-            LOGGER.error("ffmpeg silence trimming failed: %s", stderr)
+            LOGGER.error("ffmpeg silence trimming failed with return code: %d", process.returncode)
             return False
 
         LOGGER.info("Successfully trimmed silence from %s", input_path.name)
@@ -572,11 +635,17 @@ def preprocess_audio(
                 progress_callback(step_name, step_percent)
             current_step += 1
 
-        # Step 1: Convert to WAV/16kHz Mono (always do this if selected)
+        # Step 1: Convert to WAV (with configurable parameters)
         if config.convert_to_wav:
             emit_step_progress("Converting to WAV")
             temp_wav = output_dir / f"{input_path.stem}_temp_wav.wav"
-            if not convert_to_wav_16khz_mono(current_file, temp_wav, cancel_check):
+            if not convert_to_wav_16khz_mono(
+                current_file, temp_wav,
+                sample_rate=config.wav_sample_rate,
+                channels=config.wav_channels,
+                bit_depth=config.wav_bit_depth,
+                cancel_check=cancel_check
+            ):
                 _cleanup_temp_files(temp_files)
                 return None
             temp_files.append(temp_wav)
@@ -586,7 +655,13 @@ def preprocess_audio(
         if config.reduce_noise:
             emit_step_progress("Removing Background Noise")
             temp_denoised = output_dir / f"{input_path.stem}_temp_denoised.wav"
-            if not reduce_noise(current_file, temp_denoised, cancel_check):
+            if not reduce_noise(
+                current_file, temp_denoised,
+                noise_reduction=config.noise_reduction_nr,
+                noise_floor=config.noise_reduction_nf,
+                gain_smooth=config.noise_reduction_gs,
+                cancel_check=cancel_check
+            ):
                 _cleanup_temp_files(temp_files)
                 return None
             temp_files.append(temp_denoised)
@@ -596,7 +671,12 @@ def preprocess_audio(
         if config.remove_music:
             emit_step_progress("Removing Background Music")
             temp_no_music = output_dir / f"{input_path.stem}_temp_no_music.wav"
-            if not remove_music(current_file, temp_no_music, cancel_check):
+            if not remove_music(
+                current_file, temp_no_music,
+                highpass_freq=config.music_highpass_freq,
+                lowpass_freq=config.music_lowpass_freq,
+                cancel_check=cancel_check
+            ):
                 _cleanup_temp_files(temp_files)
                 return None
             temp_files.append(temp_no_music)
@@ -606,7 +686,13 @@ def preprocess_audio(
         if config.normalize_audio:
             emit_step_progress("Normalizing Audio Volume")
             temp_normalized = output_dir / f"{input_path.stem}_temp_normalized.wav"
-            if not normalize_audio(current_file, temp_normalized, config.target_db, cancel_check):
+            if not normalize_audio(
+                current_file, temp_normalized,
+                target_db=config.normalize_target_db,
+                true_peak=config.normalize_true_peak,
+                loudness_range=config.normalize_loudness_range,
+                cancel_check=cancel_check
+            ):
                 _cleanup_temp_files(temp_files)
                 return None
             temp_files.append(temp_normalized)
@@ -616,7 +702,13 @@ def preprocess_audio(
         if config.trim_silence:
             emit_step_progress("Trimming Silence (VAD)")
             temp_trimmed = output_dir / f"{input_path.stem}_temp_trimmed.wav"
-            if not trim_silence_vad(current_file, temp_trimmed, cancel_check):
+            if not trim_silence_vad(
+                current_file, temp_trimmed,
+                min_silence_ms=config.vad_min_silence_ms,
+                speech_pad_ms=config.vad_speech_pad_ms,
+                threshold=config.vad_threshold,
+                cancel_check=cancel_check
+            ):
                 _cleanup_temp_files(temp_files)
                 return None
             temp_files.append(temp_trimmed)

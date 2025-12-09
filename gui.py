@@ -155,23 +155,18 @@ class DragDropWidget(QFrame):
             self.filesDropped.emit(paths)
 
 
-class TranscriptionWindow(QMainWindow):
-    """Main Faster-Whisper GUI window."""
+class TranscriptionView(QWidget):
+    """Transcription view widget (embeddable)."""
 
-    def __init__(self, initial_files: Optional[List[Path]] = None) -> None:
-        super().__init__()
-        self.setWindowTitle("Faster-Whisper AI Transcriber [Speech to Text]")
+    transcription_started = pyqtSignal()
+    transcription_finished = pyqtSignal()
 
-        # Apply Dark Theme
-        app = QApplication.instance()
-        if app:
-            app.setStyleSheet(DARK_THEME_QSS)
-
-        # Apply Windows Dark Title Bar
-        apply_dark_title_bar(int(self.winId()))
+    def __init__(self, parent: Optional[QWidget] = None, initial_files: Optional[List[Path]] = None) -> None:
+        super().__init__(parent)
 
         self._transcriber: Optional[Transcriber] = None
         self._worker: Optional[BatchWorker] = None
+        self._status_bar: Optional[QStatusBar] = None
 
         # UI Components
         self.model_edit: QLineEdit
@@ -189,7 +184,6 @@ class TranscriptionWindow(QMainWindow):
         self.settings = QSettings("FasterWhisperGUI", "App")
 
         self._build_ui()
-        self._create_status_bar()
         self._setup_logging()
 
         self._load_settings()
@@ -199,16 +193,15 @@ class TranscriptionWindow(QMainWindow):
             for file_path in initial_files:
                 self._add_file_item(str(file_path))
 
-        self.resize(DEFAULT_WIDTH, DEFAULT_HEIGHT)
-        self._center_window()
-
-    def _center_window(self) -> None:
-        """Centers the window on the screen."""
-        frame_gm = self.frameGeometry()
-        screen = QApplication.desktop().screenNumber(QApplication.desktop().cursor().pos())
-        center_point = QApplication.desktop().screenGeometry(screen).center()
-        frame_gm.moveCenter(center_point)
-        self.move(frame_gm.topLeft())
+    def set_status_bar(self, status_bar: QStatusBar) -> None:
+        """Set the status bar for this view (called by parent window)."""
+        self._status_bar = status_bar
+        if status_bar:
+            status_bar.showMessage("Ready")
+            # Add version label to the right
+            version_label = QLabel(f"AI Transcriber App - {APP_VERSION} by Abhishek's AI Labs")
+            version_label.setStyleSheet("color: #9ca3af; padding-right: 10px;")
+            status_bar.addPermanentWidget(version_label)
 
     def _setup_logging(self) -> None:
         """Redirect logging to the GUI text area."""
@@ -216,12 +209,20 @@ class TranscriptionWindow(QMainWindow):
         logging.getLogger().addHandler(handler)
         logging.getLogger().setLevel(logging.INFO)
 
+    def statusBar(self) -> Optional[QStatusBar]:
+        """Return the status bar (if set by parent)."""
+        return self._status_bar
+
     def show_error(self, message: str) -> None:
         QMessageBox.critical(self, "Error", message)
 
+    def add_files_to_queue(self, files: List[Path]) -> None:
+        """Public method to add files from external source."""
+        for file_path in files:
+            self._add_file_item(str(file_path))
+
     def _build_ui(self) -> None:
-        central = QWidget(self)
-        main_layout = QHBoxLayout(central)
+        main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
@@ -455,16 +456,6 @@ class TranscriptionWindow(QMainWindow):
         splitter.setCollapsible(1, False)
 
         main_layout.addWidget(splitter)
-        self.setCentralWidget(central)
-
-    def _create_status_bar(self) -> None:
-        bar = self.statusBar()
-        if bar:
-            bar.showMessage("Ready")
-            # Add version label to the right
-            version_label = QLabel(f"AI Transcriber App - {APP_VERSION} by Abhishek's AI Labs")
-            version_label.setStyleSheet("color: #9ca3af; padding-right: 10px;")
-            bar.addPermanentWidget(version_label)
 
     def _load_settings(self) -> None:
         """Load last used paths from settings."""
@@ -537,7 +528,8 @@ class TranscriptionWindow(QMainWindow):
         if path and Path(path).exists():
             QDesktopServices.openUrl(QUrl.fromLocalFile(path))
         else:
-            self.statusBar().showMessage("Output folder not found.")
+            if self.statusBar():
+                self.statusBar().showMessage("Output folder not found.")
 
 
 
@@ -609,7 +601,8 @@ class TranscriptionWindow(QMainWindow):
             LOGGER.info("Configuration changed. Reloading model...")
             self._transcriber = None
 
-        self.statusBar().showMessage("Loading model...")
+        if self.statusBar():
+            self.statusBar().showMessage("Loading model...")
         try:
             import os
 
@@ -644,11 +637,13 @@ class TranscriptionWindow(QMainWindow):
             error_msg = str(exc)
             LOGGER.exception("Model loading failed")
             self.show_error(f"Failed to load model:\n{error_msg}")
-            self.statusBar().showMessage("Model load failed.")
+            if self.statusBar():
+                self.statusBar().showMessage("Model load failed.")
             return False
 
         self.start_btn.setEnabled(True)
-        self.statusBar().showMessage("Model loaded.")
+        if self.statusBar():
+            self.statusBar().showMessage("Model loaded.")
         return True
 
     def on_start_clicked(self) -> None:
@@ -682,8 +677,10 @@ class TranscriptionWindow(QMainWindow):
 
         # self.file_status_list.clear() # Removed
         self.progress_bar.setValue(0)
-        self.statusBar().showMessage("Starting transcription...")
+        if self.statusBar():
+            self.statusBar().showMessage("Starting transcription...")
         self._set_busy(True)
+        self.transcription_started.emit()  # Emit signal
 
         # Use BatchWorker for everything now
         beam_size = 5
@@ -762,7 +759,8 @@ class TranscriptionWindow(QMainWindow):
 
     def on_finished(self, results: List[TranscriptionResult]) -> None:
         LOGGER.info("on_finished() called with %d results", len(results))
-        self.statusBar().showMessage(f"Completed. Files: {len(results)}")
+        if self.statusBar():
+            self.statusBar().showMessage(f"Completed. Successfully processed {len(results)} files.")
         self._worker = None
         self._set_busy(False)
         self.progress_bar.setValue(100)
@@ -772,19 +770,23 @@ class TranscriptionWindow(QMainWindow):
         self.file_list.clear()  # Auto-clear queue
         self.file_list.setUpdatesEnabled(True)
         LOGGER.info("File list cleared")
-        QMessageBox.information(self, "Done", f"Successfully processed {len(results)} files.")
+        # Don't show blocking QMessageBox - just update status bar
         LOGGER.info("on_finished() complete")
+        self.transcription_finished.emit()  # Emit signal
 
     def on_failed(self, message: str) -> None:
         self.show_error(message)
-        self.statusBar().showMessage("Failed.")
+        if self.statusBar():
+            self.statusBar().showMessage("Failed.")
         self._worker = None
         self._set_busy(False)
+        self.transcription_finished.emit()  # Emit signal even on failure
 
     def on_cancel_clicked(self) -> None:
         if self._worker:
             self._worker.request_cancel()
-        self.statusBar().showMessage("Cancelling...")
+        if self.statusBar():
+            self.statusBar().showMessage("Cancelling...")
 
     def _set_busy(self, busy: bool) -> None:
         if busy:
@@ -799,6 +801,40 @@ class TranscriptionWindow(QMainWindow):
         # Disable list modification while running
         self.file_list.setEnabled(not busy)
         self.drag_drop.setVisible(not busy)
+
+
+class TranscriptionWindow(QMainWindow):
+    """Standalone window wrapper for TranscriptionView (backwards compatibility)."""
+
+    def __init__(self, initial_files: Optional[List[Path]] = None) -> None:
+        super().__init__()
+        self.setWindowTitle("Faster-Whisper AI Transcriber [Speech to Text]")
+
+        # Apply Dark Theme
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(DARK_THEME_QSS)
+
+        # Apply Windows Dark Title Bar
+        apply_dark_title_bar(int(self.winId()))
+
+        # Embed TranscriptionView
+        self._view = TranscriptionView(parent=self, initial_files=initial_files)
+        self.setCentralWidget(self._view)
+
+        # Connect view's status bar
+        self._view.set_status_bar(self.statusBar())
+
+        self.resize(DEFAULT_WIDTH, DEFAULT_HEIGHT)
+        self._center_window()
+
+    def _center_window(self) -> None:
+        """Centers the window on the screen."""
+        frame_gm = self.frameGeometry()
+        screen = QApplication.desktop().screenNumber(QApplication.desktop().cursor().pos())
+        center_point = QApplication.desktop().screenGeometry(screen).center()
+        frame_gm.moveCenter(center_point)
+        self.move(frame_gm.topLeft())
 
 
 # Backward compatibility alias

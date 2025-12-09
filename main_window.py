@@ -1,0 +1,211 @@
+"""Main window with sidebar navigation for Faster-Whisper GUI."""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import List, Optional
+
+from PyQt5.QtCore import Qt, QSettings
+from PyQt5.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QHBoxLayout,
+    QVBoxLayout,
+    QPushButton,
+    QStackedWidget,
+    QButtonGroup,
+)
+
+from preprocessing_gui import PreprocessingView, PreprocessingWindow
+from gui import TranscriptionView
+from styles import DARK_THEME_QSS, apply_dark_title_bar
+
+LOGGER = logging.getLogger(__name__)
+
+DEFAULT_WIDTH = 1396  # 1300 + 96 (1 inch at 96 DPI)
+DEFAULT_HEIGHT = 800
+
+SIDEBAR_STYLE = """
+    QWidget#sidebar {
+        background-color: #1e1e1e;
+        border-right: 1px solid #3e3e3e;
+    }
+
+    QPushButton#nav_button {
+        text-align: left;
+        padding: 15px 20px;
+        border: none;
+        background-color: transparent;
+        color: #cccccc;
+        font-size: 14px;
+        font-weight: bold;
+    }
+
+    QPushButton#nav_button:hover {
+        background-color: #2d2d2d;
+    }
+
+    QPushButton#nav_button:checked {
+        background-color: #0e639c;
+        color: #ffffff;
+        border-left: 3px solid #1e88e5;
+    }
+"""
+
+
+class MainWindow(QMainWindow):
+    """Main window with sidebar navigation."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("Faster-Whisper AI Transcriber")
+
+        # Apply Dark Theme
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(DARK_THEME_QSS + SIDEBAR_STYLE)
+
+        # Apply Windows Dark Title Bar
+        apply_dark_title_bar(int(self.winId()))
+
+        # Settings
+        self.settings = QSettings("FasterWhisperGUI", "MainWindow")
+
+        # Create views
+        self.preprocessing_view: Optional[PreprocessingView] = None
+        self.transcription_view: Optional[TranscriptionView] = None
+        self.stacked_widget: Optional[QStackedWidget] = None
+
+        # Track separate preprocessing windows
+        self._separate_preprocessing_windows: List[PreprocessingWindow] = []
+
+        self._build_ui()
+
+        # Restore last view
+        last_view = self.settings.value("last_view", 0, type=int)
+        self.stacked_widget.setCurrentIndex(last_view)
+        self._update_nav_buttons(last_view)
+
+        self.resize(DEFAULT_WIDTH, DEFAULT_HEIGHT)
+        self._center_window()
+
+    def _center_window(self) -> None:
+        """Centers the window on the screen."""
+        frame_gm = self.frameGeometry()
+        screen = QApplication.desktop().screenNumber(QApplication.desktop().cursor().pos())
+        center_point = QApplication.desktop().screenGeometry(screen).center()
+        frame_gm.moveCenter(center_point)
+        self.move(frame_gm.topLeft())
+
+    def _build_ui(self) -> None:
+        """Build the main UI with sidebar and stacked widget."""
+        central = QWidget(self)
+        main_layout = QHBoxLayout(central)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Sidebar
+        sidebar = QWidget()
+        sidebar.setObjectName("sidebar")
+        sidebar.setFixedWidth(150)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(0)
+
+        # Navigation buttons
+        self.preprocessing_btn = QPushButton("Preprocessing")
+        self.preprocessing_btn.setObjectName("nav_button")
+        self.preprocessing_btn.setCheckable(True)
+        self.preprocessing_btn.setChecked(True)
+        self.preprocessing_btn.clicked.connect(self._switch_to_preprocessing)
+
+        self.transcription_btn = QPushButton("Transcription")
+        self.transcription_btn.setObjectName("nav_button")
+        self.transcription_btn.setCheckable(True)
+        self.transcription_btn.clicked.connect(self._switch_to_transcription)
+
+        # Button group for exclusive selection
+        self.nav_button_group = QButtonGroup(self)
+        self.nav_button_group.addButton(self.preprocessing_btn, 0)
+        self.nav_button_group.addButton(self.transcription_btn, 1)
+
+        sidebar_layout.addWidget(self.preprocessing_btn)
+        sidebar_layout.addWidget(self.transcription_btn)
+        sidebar_layout.addStretch()
+
+        # Stacked widget for views
+        self.stacked_widget = QStackedWidget()
+
+        # Page 0: Preprocessing View
+        self.preprocessing_view = PreprocessingView(parent=self)
+        self.preprocessing_view.transcription_requested.connect(self._on_transcription_requested)
+        self.preprocessing_view.open_separate_window_requested.connect(self._open_separate_preprocessing_window)
+        self.stacked_widget.addWidget(self.preprocessing_view)
+
+        # Page 1: Transcription View
+        self.transcription_view = TranscriptionView(parent=self)
+        self.transcription_view.transcription_started.connect(self._on_transcription_started)
+        self.transcription_view.transcription_finished.connect(self._on_transcription_finished)
+        # Set status bar for transcription view
+        self.transcription_view.set_status_bar(self.statusBar())
+        self.stacked_widget.addWidget(self.transcription_view)
+
+        # Add to main layout
+        main_layout.addWidget(sidebar)
+        main_layout.addWidget(self.stacked_widget)
+
+        self.setCentralWidget(central)
+
+    def _switch_to_preprocessing(self) -> None:
+        """Switch to preprocessing view."""
+        self.stacked_widget.setCurrentIndex(0)
+        self._update_nav_buttons(0)
+        self.settings.setValue("last_view", 0)
+        LOGGER.info("Switched to Preprocessing view")
+
+    def _switch_to_transcription(self) -> None:
+        """Switch to transcription view."""
+        self.stacked_widget.setCurrentIndex(1)
+        self._update_nav_buttons(1)
+        self.settings.setValue("last_view", 1)
+        LOGGER.info("Switched to Transcription view")
+
+    def _update_nav_buttons(self, index: int) -> None:
+        """Update navigation button checked state."""
+        self.preprocessing_btn.setChecked(index == 0)
+        self.transcription_btn.setChecked(index == 1)
+
+    def _on_transcription_requested(self, files: List[Path]) -> None:
+        """Handle transition from preprocessing to transcription."""
+        LOGGER.info("Transcription requested with %d files", len(files))
+        self._switch_to_transcription()
+        if files:
+            self.transcription_view.add_files_to_queue(files)
+
+    def _open_separate_preprocessing_window(self) -> None:
+        """Open independent preprocessing window."""
+        LOGGER.info("Opening separate preprocessing window")
+        window = PreprocessingWindow(parent=self)
+        window.preprocessing_completed.connect(self._on_external_files_preprocessed)
+        window.show()
+
+        # Track window
+        self._separate_preprocessing_windows.append(window)
+
+    def _on_external_files_preprocessed(self, files: List[Path]) -> None:
+        """Handle files from separate preprocessing window."""
+        LOGGER.info("External preprocessing completed with %d files", len(files))
+        self._switch_to_transcription()
+        self.transcription_view.add_files_to_queue(files)
+
+    def _on_transcription_started(self) -> None:
+        """Lock preprocessing view when transcription is active."""
+        LOGGER.info("Transcription started - locking preprocessing view")
+        self.preprocessing_view.set_read_only(True)
+
+    def _on_transcription_finished(self) -> None:
+        """Unlock preprocessing view when transcription completes."""
+        LOGGER.info("Transcription finished - unlocking preprocessing view")
+        self.preprocessing_view.set_read_only(False)

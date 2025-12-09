@@ -14,7 +14,7 @@ except ImportError:
 
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
-from preprocessing_gui import PreprocessingWindow
+from main_window import MainWindow
 from workers import EXECUTOR
 
 
@@ -54,8 +54,8 @@ def main() -> None:
     try:
         app = QApplication(sys.argv)
 
-        # Show preprocessing window first
-        window = PreprocessingWindow()
+        # Show main window with sidebar navigation
+        window = MainWindow()
         window.show()
 
         sys.exit(app.exec())
