@@ -204,8 +204,17 @@ class TranscriptionView(QWidget):
             status_bar.addPermanentWidget(version_label)
 
     def _setup_logging(self) -> None:
-        """Redirect logging to the GUI text area."""
+        """Redirect transcription-specific logging to the GUI text area."""
         handler = QtLogHandler(self.log_output)
+        # Only show transcription-related logs (exclude preprocessing logs)
+        handler.addFilter(lambda record:
+            'transcrib' in record.name.lower() or
+            'worker' in record.name.lower() or
+            'batch' in record.name.lower() or
+            (record.name == 'root' and
+             'preprocessing' not in record.getMessage().lower() and
+             'audio_processor' not in record.getMessage().lower())
+        )
         logging.getLogger().addHandler(handler)
         logging.getLogger().setLevel(logging.INFO)
 
@@ -218,6 +227,18 @@ class TranscriptionView(QWidget):
 
     def add_files_to_queue(self, files: List[Path]) -> None:
         """Public method to add files from external source."""
+        # Prevent adding files during active transcription
+        if self._worker is not None and self._worker.isRunning():
+            LOGGER.warning("Cannot add files while transcription is running")
+            QMessageBox.warning(
+                self,
+                "Transcription In Progress",
+                "Cannot add files to the queue while transcription is running.\n\n"
+                "Please wait for the current transcription to complete.",
+                QMessageBox.Ok
+            )
+            return
+
         for file_path in files:
             self._add_file_item(str(file_path))
 
@@ -272,18 +293,16 @@ class TranscriptionView(QWidget):
         compute_label = QLabel("Word Analysis Depth:")
         self.compute_combo = QComboBox()
         self.compute_combo.addItems([
-            "Fast Analysis (int8)",
             "Precise Analysis (float32)",
             "Deep Analysis (float32)"
         ])
         # Set tooltips for each item
-        self.compute_combo.setItemData(0, "Checks 5 possibilities (low precision).", Qt.ToolTipRole)
-        self.compute_combo.setItemData(1, "Checks 5 possibilities (full precision).", Qt.ToolTipRole)
-        self.compute_combo.setItemData(2, "Checks 10 possibilities (full precision).", Qt.ToolTipRole)
+        self.compute_combo.setItemData(0, "Checks 5 possibilities (full precision).", Qt.ToolTipRole)
+        self.compute_combo.setItemData(1, "Checks 10 possibilities (full precision).", Qt.ToolTipRole)
         self.compute_combo.setMinimumHeight(30) # Taller combo
 
-        # Set default to High Quality
-        self.compute_combo.setCurrentIndex(1)
+        # Set default to Precise Analysis
+        self.compute_combo.setCurrentIndex(0)
 
         compute_layout.addWidget(compute_label)
         compute_layout.addWidget(self.compute_combo)
@@ -756,20 +775,16 @@ class TranscriptionView(QWidget):
         self.progress_bar.setValue(percent)
 
     def on_finished(self, results: List[TranscriptionResult]) -> None:
-        LOGGER.info("on_finished() called with %d results", len(results))
+        LOGGER.info("Transcription completed - %d file(s) processed", len(results))
         if self.statusBar():
             self.statusBar().showMessage(f"Completed. Successfully processed {len(results)} files.")
         self._worker = None
         self._set_busy(False)
         self.progress_bar.setValue(100)
-        LOGGER.info("Clearing file list...")
         # Disable UI updates while clearing for better performance
         self.file_list.setUpdatesEnabled(False)
         self.file_list.clear()  # Auto-clear queue
         self.file_list.setUpdatesEnabled(True)
-        LOGGER.info("File list cleared")
-        # Don't show blocking QMessageBox - just update status bar
-        LOGGER.info("on_finished() complete")
         self.transcription_finished.emit()  # Emit signal
 
     def on_failed(self, message: str) -> None:

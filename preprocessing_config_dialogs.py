@@ -467,7 +467,7 @@ class WAVConfigDialog(ConfigDialogBase):
         sr_layout = QHBoxLayout()
 
         self.sr_group = QButtonGroup(self)
-        sample_rates = [8000, 16000, 22050, 44100, 48000]
+        sample_rates = [16000, 22050, 44100, 48000]
         for i, sr in enumerate(sample_rates):
             radio = QRadioButton(f"{sr} Hz")
             radio.setProperty("sample_rate", sr)

@@ -165,7 +165,6 @@ class Transcriber:
         self._model: WhisperModel = self._load_model()
 
     def _load_model(self) -> WhisperModel:
-        LOGGER.info("Model path used: %s", self._config.model_name)
         model_path = Path(self._config.model_name)
 
         if not model_path.exists() or not model_path.is_dir():
@@ -179,11 +178,7 @@ class Transcriber:
                 "Wrong model selected. This file is not a Whisper model."
             )
 
-        LOGGER.info("Loading local offline model: %s", model_path)
-        LOGGER.info("Device: %s, Compute type: %s",
-                    self._config.device, self._config.compute_type)
-        LOGGER.info("CPU threads: %d, Workers: %d",
-                    self._config.cpu_threads, self._config.num_workers)
+        LOGGER.info("Loading model: %s (%s)", model_path.name, self._config.compute_type)
 
         try:
             return WhisperModel(
@@ -297,9 +292,7 @@ class Transcriber:
         add_report: bool = True,
         pre_converted_path: Optional[Path] = None,
     ) -> TranscriptionResult:
-        LOGGER.info("\n\n=== TRANSCRIBE_FILE CALLED ===")
-        LOGGER.info("Input: %s", input_path)
-        LOGGER.info("Output: %s", output_path)
+        LOGGER.info("Starting transcription: %s", input_path.name)
 
         if not input_path.is_file():
             raise FileNotFoundError(f"Input file not found: {input_path}")
@@ -307,7 +300,6 @@ class Transcriber:
         # Use pre-converted audio if provided, otherwise convert now
         if pre_converted_path:
             temp_wav = pre_converted_path
-            LOGGER.info("Using pre-converted audio: %s", temp_wav)
         else:
             # Try to repair/convert audio first
             temp_wav = self.prepare_audio(input_path)
@@ -316,9 +308,6 @@ class Transcriber:
 
         bs = beam_size if beam_size is not None else self._config.beam_size
         lang = language if language else self._config.language
-
-        LOGGER.info("Calling model.transcribe() with beam_size=%d, vad_filter=%s, language=%s, prompt=%s...",
-                    bs, vad_filter, lang, initial_prompt)
 
         start_time = time.time()
         # Standard Speech VAD parameters (More responsive)
@@ -355,13 +344,7 @@ class Transcriber:
                 )
             else:
                 raise e
-        LOGGER.info("Model.transcribe() completed")
-
         total_duration = info.duration
-        LOGGER.info("Audio duration: %.2fs", total_duration)
-
-        LOGGER.info("Processing segments...")
-        lines: List[str] = []
 
         def format_timestamp(seconds: float) -> str:
             mm, ss = divmod(int(seconds), 60)
@@ -369,6 +352,9 @@ class Transcriber:
             if hh > 0:
                 return f"{hh:02d}:{mm:02d}:{ss:02d}"
             return f"{mm:02d}:{ss:02d}"
+
+        LOGGER.info("Processing audio (Duration: %s)", format_timestamp(total_duration))
+        lines: List[str] = []
 
         ai_processed_duration = 0.0
         last_progress = -1
@@ -378,13 +364,12 @@ class Transcriber:
         for segment in segments:
             segment_count += 1
 
-            # Log progress every 10 seconds to track speed
+            # Log progress every 60 seconds
             current_time_elapsed = time.time() - last_log_time
-            if current_time_elapsed >= 10.0:
+            if current_time_elapsed >= 60.0:
                 audio_progress = segment.end if hasattr(segment, 'end') else 0
                 progress_pct = (audio_progress / total_duration * 100) if total_duration > 0 else 0
-                LOGGER.info("Segment #%d: %.1f%% complete (%.1f seconds of audio processed)",
-                           segment_count, progress_pct, audio_progress)
+                LOGGER.info("Progress: %.0f%% complete", progress_pct)
                 last_log_time = time.time()
             ai_processed_duration += (segment.end - segment.start)
             text_content = segment.text.strip() if segment.text else ""
@@ -405,7 +390,6 @@ class Transcriber:
                     last_progress = percent
 
         text = "\n".join(lines)
-        LOGGER.info("Processed %d text lines", len(lines))
 
         # --- Generate Transcription Report ---
         vad_status = "Active" if vad_filter else "Not Active"
@@ -454,20 +438,16 @@ class Transcriber:
         # If pre_converted_path was passed, the caller is responsible for cleanup
         if not pre_converted_path and temp_wav and temp_wav.exists():
             try:
-                LOGGER.info("Removing temp file: %s", temp_wav)
                 os.unlink(temp_wav)
             except Exception as e:
                 LOGGER.warning("Failed to remove temp file: %s", e)
 
         resolved_output: Optional[Path] = None
         if output_path is not None:
-            LOGGER.info("Saving to file...")
             resolved_output = output_path
             resolved_output.parent.mkdir(parents=True, exist_ok=True)
             resolved_output.write_text(text, encoding="utf-8")
-            LOGGER.info("Saved transcription to %s", resolved_output)
-
-        LOGGER.info("Creating result object...")
+            LOGGER.info("Saved: %s", resolved_output.name)
         return TranscriptionResult(
             input_path=input_path,
             output_path=resolved_output,

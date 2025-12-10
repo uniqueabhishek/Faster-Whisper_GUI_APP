@@ -208,8 +208,14 @@ class PreprocessingBase(QWidget):
         self._load_settings()
 
     def _setup_logging(self) -> None:
-        """Redirect logging to the GUI text area."""
+        """Redirect preprocessing-specific logging to the GUI text area."""
         handler = QtLogHandler(self.log_output)
+        # Only show preprocessing-related logs
+        handler.addFilter(lambda record:
+            'preprocessing' in record.name.lower() or
+            'audio_processor' in record.name.lower() or
+            record.name == 'root'
+        )
         logging.getLogger().addHandler(handler)
 
     def _build_ui(self) -> None:
