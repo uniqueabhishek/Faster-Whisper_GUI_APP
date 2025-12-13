@@ -8,7 +8,7 @@ import traceback
 
 # Fix for DLL load failed error: onnxruntime must be imported before PyQt5
 try:
-    import onnxruntime
+    import onnxruntime  # noqa: F401
 except ImportError:
     pass
 
@@ -32,7 +32,7 @@ def exception_hook(exctype, value, tb):
         msg.setText(f"An unhandled error occurred:\n\n{str(value)}")
         msg.setDetailedText(error_msg)
         msg.exec_()
-    except:
+    except Exception:
         pass
 
 
