@@ -1,11 +1,15 @@
 """Script to create a Word document with application description."""
 
 import sys
-sys.stdout.reconfigure(encoding='utf-8')
+import os
 
-from docx import Document
-from docx.shared import Pt, RGBColor, Inches
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+# Configure stdout encoding for UTF-8 support
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')  # type: ignore[attr-defined]
+
+from docx import Document  # noqa: E402
+from docx.shared import Pt, RGBColor, Inches  # noqa: E402
+from docx.enum.text import WD_ALIGN_PARAGRAPH  # noqa: E402
 
 # Create document
 doc = Document()
@@ -227,7 +231,6 @@ developer_format.font.size = Pt(10)
 developer_format.font.color.rgb = RGBColor(128, 128, 128)
 
 # Save document
-import os
 output_file = 'Faster-Whisper_AI_Transcriber_Description.docx'
 
 # If file exists and is locked, try alternative name
@@ -235,7 +238,7 @@ if os.path.exists(output_file):
     try:
         # Try to delete if possible
         os.remove(output_file)
-    except:
+    except OSError:
         # If locked, use new name
         output_file = 'Faster-Whisper_AI_Transcriber_Description_v2.docx'
 

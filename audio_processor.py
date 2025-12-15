@@ -399,7 +399,6 @@ def trim_silence_vad(
         try:
             import numpy as np
             import soundfile as sf
-            import sys
 
             # Import VAD functions (reuse existing patch from transcriber.py)
             from faster_whisper.vad import get_speech_timestamps, VadOptions

@@ -9,7 +9,6 @@ Colors:
 """
 
 import ctypes
-from ctypes import wintypes
 
 def apply_dark_title_bar(window_handle):
     """
@@ -20,7 +19,6 @@ def apply_dark_title_bar(window_handle):
         # DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 10 2004+ / Windows 11)
         DWMWA_USE_IMMERSIVE_DARK_MODE = 20
         set_window_attribute = ctypes.windll.dwmapi.DwmSetWindowAttribute
-        get_parent = ctypes.windll.user32.GetParent
         hwnd = window_handle
 
         # If it's a PyQt window, we might need the underlying HWND

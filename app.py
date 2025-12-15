@@ -8,10 +8,11 @@ import traceback
 
 # Fix for DLL load failed error: onnxruntime must be imported before PyQt5
 try:
-    import onnxruntime  # noqa: F401
+    import onnxruntime  # noqa: F401 - Must be imported before PyQt5
 except ImportError:
     pass
 
+# pylint: disable=no-name-in-module
 from PyQt5.QtWidgets import QApplication, QMessageBox
 
 from main_window import MainWindow
@@ -32,11 +33,13 @@ def exception_hook(exctype, value, tb):
         msg.setText(f"An unhandled error occurred:\n\n{str(value)}")
         msg.setDetailedText(error_msg)
         msg.exec_()
-    except Exception:
+    except Exception:  # pylint: disable=broad-except
+        # If the error handler fails (e.g. Qt not initialized), just ignore to prevent recursion
         pass
 
 
 def main() -> None:
+    """Main application entry point."""
     # Install global exception hook
     sys.excepthook = exception_hook
 
@@ -59,7 +62,8 @@ def main() -> None:
         window.show()
 
         sys.exit(app.exec())
-    except Exception:
+    except Exception:  # pylint: disable=broad-except
+        # Catch-all for any fatal crashes at the top level
         logging.exception("Fatal error in application")
         print(f"\n\nFATAL ERROR:\n{traceback.format_exc()}")
         input("Press Enter to exit...")

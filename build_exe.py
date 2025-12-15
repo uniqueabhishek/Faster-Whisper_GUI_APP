@@ -6,7 +6,7 @@ import sys
 def build():
     # Check if PyInstaller is installed
     try:
-        import PyInstaller
+        import PyInstaller  # noqa: F401
     except ImportError:
         print("PyInstaller is not installed. Installing it...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
@@ -26,7 +26,7 @@ def build():
         "--clean",
         "-y",
         "--name", "FasterWhisperGUI",
-        f"--add-data", f"assets{separator}assets",
+        "--add-data", f"assets{separator}assets",
         "--hidden-import", "df",
         "--hidden-import", "torchaudio",
         "--hidden-import", "soundfile",

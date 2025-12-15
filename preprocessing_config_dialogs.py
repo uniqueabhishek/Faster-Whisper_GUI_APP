@@ -130,7 +130,7 @@ class NoiseReductionConfigDialog(ConfigDialogBase):
         range_layout = QHBoxLayout()
         range_layout.addWidget(QLabel(left_label))
 
-        slider = QSlider(Qt.Horizontal)
+        slider = QSlider(Qt.Horizontal)  # type: ignore[attr-defined]
         slider.setMinimum(min_val)
         slider.setMaximum(max_val)
         slider.setValue(default)
@@ -140,7 +140,7 @@ class NoiseReductionConfigDialog(ConfigDialogBase):
         self.main_layout.addLayout(range_layout)
 
         value_label = QLabel(f"{default}{unit}")
-        value_label.setAlignment(Qt.AlignCenter)
+        value_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
         value_label.setStyleSheet("color: #3b82f6; font-weight: bold;")
         slider.valueChanged.connect(lambda v: value_label.setText(f"{v}{unit}"))
         self.main_layout.addWidget(value_label)
@@ -230,7 +230,7 @@ class MusicRemovalConfigDialog(ConfigDialogBase):
         range_layout = QHBoxLayout()
         range_layout.addWidget(QLabel(left_label))
 
-        slider = QSlider(Qt.Horizontal)
+        slider = QSlider(Qt.Horizontal)  # type: ignore[attr-defined]
         slider.setMinimum(min_val)
         slider.setMaximum(max_val)
         slider.setValue(default)
@@ -240,7 +240,7 @@ class MusicRemovalConfigDialog(ConfigDialogBase):
         self.main_layout.addLayout(range_layout)
 
         value_label = QLabel(f"{default}{unit}")
-        value_label.setAlignment(Qt.AlignCenter)
+        value_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
         value_label.setStyleSheet("color: #3b82f6; font-weight: bold;")
         slider.valueChanged.connect(lambda v: value_label.setText(f"{v}{unit}"))
         self.main_layout.addWidget(value_label)
@@ -315,7 +315,7 @@ class NormalizationConfigDialog(ConfigDialogBase):
         range_layout = QHBoxLayout()
         range_layout.addWidget(QLabel(left_label))
 
-        slider = QSlider(Qt.Horizontal)
+        slider = QSlider(Qt.Horizontal)  # type: ignore[attr-defined]
         slider.setMinimum(min_val)
         slider.setMaximum(max_val)
         slider.setValue(default)
@@ -325,7 +325,7 @@ class NormalizationConfigDialog(ConfigDialogBase):
         self.main_layout.addLayout(range_layout)
 
         value_label = QLabel(f"{default}{unit}")
-        value_label.setAlignment(Qt.AlignCenter)
+        value_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
         value_label.setStyleSheet("color: #3b82f6; font-weight: bold;")
 
         # Special handling for TP slider (decimal formatting)
@@ -408,7 +408,7 @@ class VADConfigDialog(ConfigDialogBase):
         range_layout = QHBoxLayout()
         range_layout.addWidget(QLabel(left_label))
 
-        slider = QSlider(Qt.Horizontal)
+        slider = QSlider(Qt.Horizontal)  # type: ignore[attr-defined]
         slider.setMinimum(min_val)
         slider.setMaximum(max_val)
         slider.setValue(default)
@@ -418,7 +418,7 @@ class VADConfigDialog(ConfigDialogBase):
         self.main_layout.addLayout(range_layout)
 
         value_label = QLabel(f"{default}{unit}")
-        value_label.setAlignment(Qt.AlignCenter)
+        value_label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
         value_label.setStyleSheet("color: #3b82f6; font-weight: bold;")
 
         # Special handling for threshold slider (decimal formatting)
@@ -537,9 +537,9 @@ class WAVConfigDialog(ConfigDialogBase):
 
     def _update_preview(self):
         """Update preview command text."""
-        sr = self.sr_group.checkedButton().property("sample_rate")
-        ch = self.ch_group.checkedButton().property("channels")
-        bd = self.bd_group.checkedButton().property("bit_depth")
+        sr = self.sr_group.checkedButton().property("sample_rate")  # type: ignore[union-attr]
+        ch = self.ch_group.checkedButton().property("channels")  # type: ignore[union-attr]
+        bd = self.bd_group.checkedButton().property("bit_depth")  # type: ignore[union-attr]
 
         codec_map = {16: "pcm_s16le", 24: "pcm_s24le", 32: "pcm_s32le"}
         codec = codec_map.get(bd, "pcm_s16le")
@@ -550,7 +550,7 @@ class WAVConfigDialog(ConfigDialogBase):
     def get_values(self) -> Dict:
         """Return selected values as dict."""
         return {
-            'wav_sample_rate': self.sr_group.checkedButton().property("sample_rate"),
-            'wav_channels': self.ch_group.checkedButton().property("channels"),
-            'wav_bit_depth': self.bd_group.checkedButton().property("bit_depth"),
+            'wav_sample_rate': self.sr_group.checkedButton().property("sample_rate"),  # type: ignore[union-attr]
+            'wav_channels': self.ch_group.checkedButton().property("channels"),  # type: ignore[union-attr]
+            'wav_bit_depth': self.bd_group.checkedButton().property("bit_depth"),  # type: ignore[union-attr]
         }

@@ -46,7 +46,7 @@ def download_vad():
                      content = data.decode('utf-8', errors='ignore')
                      if "<html" in content.lower() or "<!doctype" in content.lower():
                          raise RuntimeError("Downloaded file is HTML (likely a block page).")
-                 except:
+                 except Exception:  # pylint: disable=broad-except
                      pass
                  raise RuntimeError(f"Downloaded file is too small ({len(data)} bytes).")
 
@@ -60,7 +60,7 @@ def download_vad():
         if os.path.exists(VAD_PATH):
             try:
                 os.remove(VAD_PATH)
-            except:
+            except Exception:  # pylint: disable=broad-except
                 pass
         raise
 

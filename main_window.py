@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
-from PyQt5.QtCore import Qt, QSettings
+from PyQt5.QtCore import QSettings
 from PyQt5.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -65,7 +65,7 @@ class MainWindow(QMainWindow):
         # Apply Dark Theme
         app = QApplication.instance()
         if app:
-            app.setStyleSheet(DARK_THEME_QSS + SIDEBAR_STYLE)
+            app.setStyleSheet(DARK_THEME_QSS + SIDEBAR_STYLE)  # type: ignore[attr-defined]
 
         # Apply Windows Dark Title Bar
         apply_dark_title_bar(int(self.winId()))
@@ -73,10 +73,10 @@ class MainWindow(QMainWindow):
         # Settings
         self.settings = QSettings("FasterWhisperGUI", "MainWindow")
 
-        # Create views
-        self.preprocessing_view: Optional[PreprocessingView] = None
-        self.transcription_view: Optional[TranscriptionView] = None
-        self.stacked_widget: Optional[QStackedWidget] = None
+        # Create views (initialized in _build_ui)
+        self.preprocessing_view: PreprocessingView
+        self.transcription_view: TranscriptionView
+        self.stacked_widget: QStackedWidget
 
         # Track separate preprocessing windows
         self._separate_preprocessing_windows: List[PreprocessingWindow] = []
@@ -94,10 +94,12 @@ class MainWindow(QMainWindow):
     def _center_window(self) -> None:
         """Centers the window on the screen."""
         frame_gm = self.frameGeometry()
-        screen = QApplication.desktop().screenNumber(QApplication.desktop().cursor().pos())
-        center_point = QApplication.desktop().screenGeometry(screen).center()
-        frame_gm.moveCenter(center_point)
-        self.move(frame_gm.topLeft())
+        desktop = QApplication.desktop()
+        if desktop:
+            screen = desktop.screenNumber(desktop.cursor().pos())  # type: ignore[attr-defined]
+            center_point = desktop.screenGeometry(screen).center()  # type: ignore[attr-defined]
+            frame_gm.moveCenter(center_point)
+            self.move(frame_gm.topLeft())
 
     def _build_ui(self) -> None:
         """Build the main UI with sidebar and stacked widget."""

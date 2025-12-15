@@ -1,6 +1,5 @@
 import faster_whisper.vad
 import inspect
-import sys
 
 try:
     print("Source code for faster_whisper.vad.SileroVADModel.__call__:")

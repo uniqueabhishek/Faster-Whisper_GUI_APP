@@ -5,9 +5,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import List, Optional
-import tempfile
 
-from PyQt5.QtCore import Qt, QSettings, pyqtSignal
+from PyQt5.QtCore import Qt, QSettings, pyqtSignal, QObject
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -44,7 +43,6 @@ from preprocessing_config_dialogs import (
 # Import DragDropWidget and other utilities from gui
 # We'll need to import from gui after modifying it
 # For now, let's create a simple version here
-from PyQt5.QtCore import pyqtSignal, QObject, QUrl
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent
 from PyQt5.QtWidgets import QFrame
 
@@ -79,8 +77,8 @@ class QtLogHandler(logging.Handler):
 
     def _append_text(self, msg: str):
         self.text_widget.append(msg)
-        self.text_widget.verticalScrollBar().setValue(
-            self.text_widget.verticalScrollBar().maximum()
+        self.text_widget.verticalScrollBar().setValue(  # type: ignore[union-attr]
+            self.text_widget.verticalScrollBar().maximum()  # type: ignore[union-attr]
         )
 
 
@@ -107,12 +105,12 @@ class DragDropWidget(QFrame):
 
         layout = QVBoxLayout(self)
         self.label = QLabel(title)
-        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
         self.label.setStyleSheet("color: #9ca3af; font-weight: bold;")
         layout.addWidget(self.label)
 
     def dragEnterEvent(self, event: QDragEnterEvent):
-        if event.mimeData().hasUrls():
+        if event.mimeData().hasUrls():  # type: ignore[union-attr]
             event.accept()
             self.setStyleSheet("""
                 QFrame {
@@ -140,7 +138,7 @@ class DragDropWidget(QFrame):
                 background-color: #262626;
             }
         """)
-        urls = event.mimeData().urls()
+        urls = event.mimeData().urls()  # type: ignore[union-attr]
         if urls:
             paths = [u.toLocalFile() for u in urls]
             self.filesDropped.emit(paths)
@@ -224,7 +222,7 @@ class PreprocessingBase(QWidget):
         main_layout.setSpacing(0)
 
         # Splitter for Left (Options/Logs) and Right (File Queue)
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = QSplitter(Qt.Horizontal)  # type: ignore[attr-defined]
 
         # --- LEFT PANE: Preprocessing Options, Output Folder, Live Logs ---
         left_widget = QWidget()
@@ -329,7 +327,7 @@ class PreprocessingBase(QWidget):
         self.db_label.setStyleSheet("color: #3b82f6; font-weight: bold;")
         normalize_layout.addWidget(self.db_label)
 
-        self.db_slider = QSlider(Qt.Horizontal)
+        self.db_slider = QSlider(Qt.Horizontal)  # type: ignore[attr-defined]
         self.db_slider.setRange(-30, 0)
         self.db_slider.setValue(-20)
         self.db_slider.setEnabled(False)
@@ -618,7 +616,7 @@ class PreprocessingBase(QWidget):
         item_text = f"{row + 1}. {filename}"
 
         item = QListWidgetItem(item_text)
-        item.setData(Qt.UserRole, str(path))
+        item.setData(Qt.UserRole, str(path))  # type: ignore[attr-defined]
         self.file_list.addItem(item)
 
     def on_files_dropped(self, paths: List[str]) -> None:
@@ -660,7 +658,7 @@ class PreprocessingBase(QWidget):
         input_files = []
         for i in range(self.file_list.count()):
             item = self.file_list.item(i)
-            path_str = item.data(Qt.UserRole)
+            path_str = item.data(Qt.UserRole)  # type: ignore[union-attr, attr-defined]
             if path_str:
                 path = Path(path_str)
                 if path.is_file():
@@ -739,9 +737,9 @@ class PreprocessingBase(QWidget):
         """Update file status in list."""
         for i in range(self.file_list.count()):
             item = self.file_list.item(i)
-            path_str = item.data(Qt.UserRole)
+            path_str = item.data(Qt.UserRole)  # type: ignore[union-attr, attr-defined]
             if path_str and Path(path_str).name == filename:
-                item.setText(f"{i+1}. {filename} [{status}]")
+                item.setText(f"{i+1}. {filename} [{status}]")  # type: ignore[union-attr]
                 self.file_list.scrollToItem(item)
                 break
 
@@ -874,7 +872,7 @@ class PreprocessingWindow(QMainWindow):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Audio Preprocessing - New Window")
-        self.setWindowFlags(Qt.Window)  # Make it a proper window
+        self.setWindowFlags(Qt.Window)  # type: ignore[attr-defined] # Make it a proper window
 
         # Apply Dark Theme
         app = QApplication.instance()
@@ -895,7 +893,7 @@ class PreprocessingWindow(QMainWindow):
                     background-color: #1d4ed8;
                 }
             """
-            app.setStyleSheet(DARK_THEME_QSS + settings_btn_style)
+            app.setStyleSheet(DARK_THEME_QSS + settings_btn_style)  # type: ignore[attr-defined]
 
         # Apply Windows Dark Title Bar
         apply_dark_title_bar(int(self.winId()))
@@ -913,10 +911,12 @@ class PreprocessingWindow(QMainWindow):
     def _center_window(self) -> None:
         """Centers the window on the screen."""
         frame_gm = self.frameGeometry()
-        screen = QApplication.desktop().screenNumber(QApplication.desktop().cursor().pos())
-        center_point = QApplication.desktop().screenGeometry(screen).center()
-        frame_gm.moveCenter(center_point)
-        self.move(frame_gm.topLeft())
+        desktop = QApplication.desktop()
+        if desktop:
+            screen = desktop.screenNumber(desktop.cursor().pos())  # type: ignore[attr-defined]
+            center_point = desktop.screenGeometry(screen).center()  # type: ignore[attr-defined]
+            frame_gm.moveCenter(center_point)
+            self.move(frame_gm.topLeft())
 
     def _on_transcription_requested(self, files: List[Path]) -> None:
         """Handle transcription request from embedded view."""

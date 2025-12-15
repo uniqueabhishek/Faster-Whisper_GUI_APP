@@ -2,28 +2,33 @@
 # pyright: reportAttributeAccessIssue=false, reportOptionalMemberAccess=false
 
 from __future__ import annotations
-from faster_whisper import WhisperModel
 
+import sys
+import os
+import time
 import logging
+import subprocess
+import re
+import shutil
+import wave
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, List, Optional
+from collections import namedtuple
+
+LOGGER = logging.getLogger(__name__)
 
 try:
     from faster_whisper import WhisperModel
     import faster_whisper.vad
     import faster_whisper.transcribe
 
-    LOGGER = logging.getLogger(__name__)
-
-    import sys
-    import os
-    import time
-
     # Monkey patch VAD model path for offline use
     if getattr(sys, 'frozen', False):
         # If running as a bundled exe, look in the temporary folder
-        _VAD_PATH = Path(sys._MEIPASS) / "assets" / "silero_vad.onnx"
+        _VAD_PATH = Path(sys._MEIPASS) / "assets" / \
+            "silero_vad.onnx"  # pylint: disable=protected-access
     else:
         _VAD_PATH = Path(__file__).parent / "assets" / "silero_vad.onnx"
 
@@ -31,6 +36,7 @@ try:
 
     if _VAD_PATH.exists():
         import numpy as np
+
         class SessionWrapper:
             def __init__(self, session):
                 self._session = session
@@ -60,16 +66,20 @@ try:
                             # BUT only if the total size matches!
                             required_size = 2 * batch_size * 64
                             if val.ndim == 3 and val.shape[0] == 1 and val.shape[2] == 128 and val.size == required_size:
-                                input_feed[key] = val.reshape(2, batch_size, 64)
+                                input_feed[key] = val.reshape(
+                                    2, batch_size, 64)
                             elif val.shape != (2, batch_size, 64):
                                 # Fallback if shape is weird or size mismatch: reset to zeros
-                                input_feed[key] = np.zeros((2, batch_size, 64), dtype=np.float32)
+                                input_feed[key] = np.zeros(
+                                    (2, batch_size, 64), dtype=np.float32)
                         else:
                             # Not in input feed, initialize zeros
-                            input_feed[key] = np.zeros((2, batch_size, 64), dtype=np.float32)
+                            input_feed[key] = np.zeros(
+                                (2, batch_size, 64), dtype=np.float32)
 
                 # 3. Run session
-                outputs = self._session.run(output_names, input_feed, run_options)
+                outputs = self._session.run(
+                    output_names, input_feed, run_options)
 
                 # 4. Reshape outputs back to (1, batch, 128) to satisfy faster_whisper
                 # outputs is usually [prob, h, c]
@@ -113,7 +123,6 @@ try:
 
     LOGGER.info("faster_whisper imported successfully")
 except ImportError as e:
-    LOGGER = logging.getLogger(__name__)
     LOGGER.error("Failed to import faster_whisper: %s", str(e))
     raise
 
@@ -135,6 +144,8 @@ class TranscriptionConfig:
     best_of: int = 5
     cpu_threads: int = 0  # 0 = auto-detect and use all cores
     num_workers: int = 1  # Number of parallel workers for transcription
+    # Audio chunk length in seconds (None = auto-detect based on duration)
+    chunk_length: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -178,7 +189,8 @@ class Transcriber:
                 "Wrong model selected. This file is not a Whisper model."
             )
 
-        LOGGER.info("Loading model: %s (%s)", model_path.name, self._config.compute_type)
+        LOGGER.info("Loading model: %s (%s)", model_path.name,
+                    self._config.compute_type)
 
         try:
             return WhisperModel(
@@ -197,12 +209,6 @@ class Transcriber:
            Returns Path to temp file if converted, or None if original is fine.
            cancel_check: Optional callable that returns True if cancellation is requested.
         """
-        import subprocess
-        import tempfile
-        import shutil
-        import os
-        import wave
-
         if not shutil.which("ffmpeg"):
             LOGGER.warning("ffmpeg not found. Skipping audio repair.")
             return None
@@ -211,15 +217,22 @@ class Transcriber:
         if input_path.suffix.lower() == ".wav":
             try:
                 with wave.open(str(input_path), "rb") as wf:
+                    channels = wf.getnchannels()
+                    framerate = wf.getframerate()
+                    sampwidth = wf.getsampwidth()
+
                     # Check: 1 channel, 16kHz, 16-bit (2 bytes)
-                    if (wf.getnchannels() == 1 and
-                        wf.getframerate() == 16000 and
-                        wf.getsampwidth() == 2):
-                        LOGGER.info("File is already 16kHz mono WAV. Skipping conversion.")
+                    if channels == 1 and framerate == 16000 and sampwidth == 2:
+                        LOGGER.info(
+                            "✓ File is already 16kHz mono WAV. Skipping conversion: %s", input_path.name)
                         return None
-            except Exception:
+                    else:
+                        LOGGER.info("File format: %dHz, %d channel(s), %d-bit. Conversion needed: %s",
+                                    framerate, channels, sampwidth * 8, input_path.name)
+            except Exception as e:  # pylint: disable=broad-except
                 # If any error reading wav header, proceed to ffmpeg
-                pass
+                LOGGER.debug(
+                    "Could not read WAV header for %s: %s. Will convert.", input_path.name, str(e))
 
         try:
             # Create temp file path
@@ -227,12 +240,14 @@ class Transcriber:
             os.close(fd)
             temp_path = Path(temp_path)
 
-            LOGGER.info("Repairing audio with ffmpeg: %s -> %s", input_path, temp_path)
+            LOGGER.info("Repairing audio with ffmpeg: %s -> %s",
+                        input_path, temp_path)
 
             # ffmpeg -i input -ar 16000 -ac 1 -c:a pcm_s16le output.wav
             cmd = [
                 "ffmpeg", "-y",
                 "-i", str(input_path),
+                "-ar", "16000",
                 "-ac", "1",
                 "-c:a", "pcm_s16le",
                 str(temp_path)
@@ -254,28 +269,263 @@ class Transcriber:
                     if temp_path.exists():
                         try:
                             os.unlink(temp_path)
-                        except:
+                        except OSError:
                             pass
                     raise Exception("Cancelled")
 
                 if process.poll() is not None:
                     break
 
-                import time
                 time.sleep(0.1)
 
             if process.returncode != 0:
-                LOGGER.warning("ffmpeg failed with return code: %d", process.returncode)
+                LOGGER.warning(
+                    "ffmpeg failed with return code: %d", process.returncode)
                 return None
 
             LOGGER.info("Audio repair successful.")
             return temp_path
 
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             if str(e) == "Cancelled":
                 raise
             LOGGER.error("Audio repair failed: %s", str(e))
             return None
+
+    def _slice_audio(self, input_path: Path, start: float, duration: float) -> Optional[Path]:
+        """Extract a slice of audio to a temporary WAV file."""
+        temp_path = None
+        try:
+            fd, temp_path = tempfile.mkstemp(suffix=".wav")
+            os.close(fd)
+            temp_path = Path(temp_path)
+
+            # Simple ffmpeg slice
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", str(input_path),
+                "-ss", str(start),
+                "-t", str(duration),
+                "-ar", "16000",
+                "-ac", "1",
+                "-c:a", "pcm_s16le",
+                str(temp_path)
+            ]
+
+            subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+                check=True
+            )
+            return temp_path
+        except Exception as e:  # pylint: disable=broad-except
+            LOGGER.error("Failed to slice audio: %s", e)
+            if temp_path and temp_path.exists():
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+            return None
+
+    def _find_nearest_silence(self, input_path: Path, start_search: float, search_window: float = 600.0) -> float:
+        """Find the best silence point to split audio using ffmpeg.
+           Returns timestamp of silence center, or start_search + search_window/2 if none found.
+        """
+        # Limit search to end of file to avoid errors
+        duration = 0
+        try:
+            if input_path.suffix == ".wav":
+                with wave.open(str(input_path), "rb") as wf:
+                    duration = wf.getnframes() / wf.getframerate()
+        except Exception:
+            pass
+
+        if duration > 0 and start_search >= duration:
+            return start_search
+
+        actual_search_end = start_search + search_window
+        if duration > 0:
+            actual_search_end = min(actual_search_end, duration)
+
+        actual_window = actual_search_end - start_search
+        if actual_window <= 0:
+            return start_search
+
+        # Default fallback: hard split at 10 minutes from start_search (or half window)
+        fallback_split = start_search + (actual_window / 2)
+
+        try:
+            # Run silencedetect filter
+            # We look for silence > 0.5s with -30dB threshold
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", str(input_path),
+                "-ss", str(start_search),
+                "-t", str(actual_window),
+                "-af", "silencedetect=n=-30dB:d=0.5",
+                "-f", "null",
+                "-"
+            ]
+
+            # Capture stderr because ffmpeg writes filter output there
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+                encoding="utf-8",
+                errors="ignore",
+                check=False
+            )
+
+            output = result.stderr
+
+            # Parse silence_start: 12.345
+            # We want to find the silence that is closest to our ideal split point?
+            # Or just the longest one?
+            # User wants 10-20 min chunks.
+            # Smartest strategy: Find ANY valid silence in the window.
+            # Ideally picking the one in the middle of the window is safest to keep chunks balanced,
+            # but picking the longest one is safest for audio integrity.
+            # Let's pick the longest silence in the window.
+
+            # Match paired silence_start -> silence_end to avoid misalignment
+            silence_pairs = re.findall(
+                r"silence_start: ([\d\.]+).*?silence_end: ([\d\.]+)", output, re.DOTALL)
+
+            if not silence_pairs:
+                LOGGER.info(
+                    "No silence found in window %.1f-%.1f. Using hard split.", start_search, actual_search_end)
+                return fallback_split
+
+            # When using -ss before -i, ffmpeg resets filter timestamps to 0
+            silences = []
+            for s_str, e_str in silence_pairs:
+                s = float(s_str)
+                e = float(e_str)
+                if e > s:  # Validate that end is after start
+                    duration = e - s
+                    center = s + (duration / 2)
+                    silences.append((center, duration))
+
+            if not silences:
+                return fallback_split
+
+            # Pick silence with max duration
+            best_silence = max(silences, key=lambda x: x[1])
+            best_relative_time = best_silence[0]
+
+            final_split_time = start_search + best_relative_time
+            LOGGER.info(
+                "Smart split found at %.2fs (Silence duration: %.2fs)", final_split_time, best_silence[1])
+            return final_split_time
+
+        except Exception as e:  # pylint: disable=broad-except
+            LOGGER.warning("Smart split failed: %s. using hard split.", e)
+            return fallback_split
+
+    MIN_CHUNK_DURATION = 600   # 10 minutes
+    MAX_CHUNK_DURATION = 1200  # 20 minutes
+
+    def _transcribe_chunked(self, input_path: Path, total_duration: float, transcribe_kwargs: dict):
+        """Generator that yields segments by processing audio in chunks (safe for low memory)."""
+
+        # Remove chunk_length to prevent nested chunking issues
+        chunk_kwargs = transcribe_kwargs.copy()
+        if 'chunk_length' in chunk_kwargs:
+            chunk_kwargs.pop('chunk_length')
+
+        current_time = 0.0
+
+        while current_time < total_duration:
+            # We want a chunk between 10 and 20 minutes.
+            # So we search for silence between [current+10m, current+20m]
+
+            search_start = current_time + self.MIN_CHUNK_DURATION
+
+            # If remaining audio is less than MIN_CHUNK_DURATION, just take it all
+            if search_start >= total_duration:
+                chunk_duration = total_duration - current_time
+                split_point = total_duration
+            else:
+                # Calculate search window
+                # If total remaining is less than MAX_CHUNK_DURATION, cap it
+                end_limit = min(
+                    current_time + self.MAX_CHUNK_DURATION, total_duration)
+                search_window = end_limit - search_start
+
+                if search_window <= 0:
+                    # e.g. exactly 10 mins left
+                    split_point = end_limit
+                else:
+                    split_point = self._find_nearest_silence(
+                        input_path, search_start, search_window)
+
+            # Safety check: Ensure we advance
+            if split_point <= current_time:
+                split_point = current_time + self.MIN_CHUNK_DURATION
+            split_point = min(split_point, total_duration)
+
+            chunk_duration = split_point - current_time
+
+            LOGGER.info(
+                "Processing chunk: %.1f - %.1f (Duration: %.1f)", current_time, split_point, chunk_duration)
+
+            temp_chunk = self._slice_audio(
+                input_path, current_time, chunk_duration)
+            if not temp_chunk:
+                LOGGER.error(
+                    "Failed to create audio slice. Aborting chunked transcription.")
+                break
+
+            try:
+                segments, _ = self._model.transcribe(
+                    str(temp_chunk), **chunk_kwargs)
+
+                for segment in segments:
+                    # Adjust timestamps relative to the original file
+                    new_start = segment.start + current_time
+                    new_end = segment.end + current_time
+
+                    # Create a new segment with adjusted timestamps
+                    # Check if segment has _replace (namedtuple) or needs reconstruction
+                    if hasattr(segment, '_replace'):
+                        # Older faster-whisper versions use namedtuples
+                        yield segment._replace(start=new_start, end=new_end)
+                    else:
+                        # Newer versions use Segment class - create modified copy
+                        from faster_whisper.transcribe import Segment
+                        yield Segment(
+                            id=segment.id,
+                            seek=segment.seek,
+                            start=new_start,
+                            end=new_end,
+                            text=segment.text,
+                            tokens=segment.tokens,
+                            temperature=segment.temperature,
+                            avg_logprob=segment.avg_logprob,
+                            compression_ratio=segment.compression_ratio,
+                            no_speech_prob=segment.no_speech_prob,
+                            words=segment.words if hasattr(segment, 'words') else None,
+                        )
+
+            except Exception as e:  # pylint: disable=broad-except
+                LOGGER.error(
+                    "Error processing chunk starting at %.1f: %s", current_time, e)
+                # Try to continue if possible, or raise if critical
+                # For memory error, we really want to stop or retry smaller?
+                # Since we are already chunking, raising is appropriate.
+                raise e
+            finally:
+                if temp_chunk.exists():
+                    try:
+                        os.unlink(temp_chunk)
+                    except OSError:
+                        pass
+
+            current_time = split_point
 
     def transcribe_file(
         self,
@@ -309,6 +559,41 @@ class Transcriber:
         bs = beam_size if beam_size is not None else self._config.beam_size
         lang = language if language else self._config.language
 
+        # Auto-detect strategy for large files
+        chunk_length = None
+        use_smart_chunking = False
+        duration_minutes = 0.0
+        full_duration = 0.0
+
+        if self._config.chunk_length is None:
+            # Get audio duration to determine logic
+            try:
+                with wave.open(str(actual_input), "rb") as wf:
+                    full_duration = wf.getnframes() / wf.getframerate()
+                    duration_minutes = full_duration / 60
+
+                    LOGGER.info("Audio duration: %.1f minutes",
+                                duration_minutes)
+
+                    if duration_minutes > 40:
+                        use_smart_chunking = True
+                        LOGGER.info(
+                            "Long audio detected (%.1f min). Using Smart Chunking (physical splitting) to prevent memory errors.",
+                            duration_minutes
+                        )
+                    else:
+                        LOGGER.info(
+                            "Normal duration file (%.1f min). Standard processing.", duration_minutes)
+            except Exception as e:  # pylint: disable=broad-except
+                LOGGER.warning(
+                    "Could not determine audio duration: %s. Proceeding with standard processing.", e)
+        else:
+            # User specified chunk length, respect it but don't force smart chunking unless memory error happens
+            chunk_length = self._config.chunk_length
+            if chunk_length:
+                LOGGER.info(
+                    "Using custom internal chunk length: %ds", chunk_length)
+
         start_time = time.time()
         # Standard Speech VAD parameters (More responsive)
         vad_params = dict(
@@ -317,23 +602,78 @@ class Transcriber:
             threshold=0.1,
         ) if vad_filter else None
 
+        # Build transcribe kwargs
+        transcribe_kwargs = dict(
+            language=lang,
+            beam_size=bs,
+            best_of=self._config.best_of,
+            vad_filter=vad_filter,
+            vad_parameters=vad_params,
+            initial_prompt=initial_prompt,
+            condition_on_previous_text=False,
+            task=task,
+            patience=patience,
+        )
+
+        # Only add chunk_length if it's set (for standard processing)
+        if chunk_length is not None:
+            transcribe_kwargs['chunk_length'] = chunk_length
+
         try:
-            segments, info = self._model.transcribe(
-                str(actual_input),
-                language=lang,
-                beam_size=bs,
-                best_of=self._config.best_of,
-                vad_filter=vad_filter,
-                vad_parameters=vad_params,
-                initial_prompt=initial_prompt,
-                condition_on_previous_text=False,
-                task=task,
-                patience=patience,
-            )
-        except Exception as e:
-            # Fallback for VAD errors (e.g. invalid model file or missing dependencies)
-            if vad_filter and ("ONNXRuntimeError" in str(e) or "INVALID_PROTOBUF" in str(e)):
-                LOGGER.warning(f"VAD failed to load ({e}). Retrying with VAD disabled.")
+            if use_smart_chunking:
+                segments = self._transcribe_chunked(
+                    actual_input, full_duration, transcribe_kwargs)
+
+                # Create dummy info object required by downstream code
+                TranscriptionInfo = namedtuple(
+                    "TranscriptionInfo", ["duration", "language", "language_probability"])
+                info = TranscriptionInfo(
+                    duration=full_duration,
+                    language=lang if lang else "unknown",
+                    language_probability=1.0
+                )
+            else:
+                segments, info = self._model.transcribe(
+                    str(actual_input),
+                    **transcribe_kwargs  # type: ignore[arg-type]
+                )
+        except Exception as e:  # pylint: disable=broad-except
+            error_str = str(e)
+            is_memory_error = "MemoryError" in error_str or "Unable to allocate" in error_str or isinstance(
+                e, MemoryError) or "ArrayMemoryError" in error_str
+
+            if is_memory_error and not use_smart_chunking:
+                LOGGER.warning(
+                    "Memory Error detected during standard processing (%s). Switching to safer Smart Chunking.", error_str)
+
+                # We need duration if we didn't get it before
+                if full_duration == 0.0:
+                    try:
+                        with wave.open(str(actual_input), "rb") as wf:
+                            full_duration = wf.getnframes() / wf.getframerate()
+                    except Exception as ex:  # pylint: disable=broad-except
+                        LOGGER.error(
+                            "Could not determine duration for chunking fallback: %s", ex)
+                        raise e from ex
+
+                segments = self._transcribe_chunked(
+                    actual_input, full_duration, transcribe_kwargs)
+
+                # Create dummy info object
+                TranscriptionInfo = namedtuple(
+                    "TranscriptionInfo", ["duration", "language", "language_probability"])
+                info = TranscriptionInfo(
+                    duration=full_duration,
+                    language=lang if lang else "unknown",
+                    language_probability=1.0
+                )
+
+            # Fallback for VAD errors (only if NOT using smart chunking, as smart chunking re-calls transcribe recursively)
+            # Actually, smart chunking calls _model.transcribe internally, so VAD errors would Bubble up.
+            # We can leave VAD fallback here for the top-level standard call or broadly catch it.
+            elif vad_filter and ("ONNXRuntimeError" in error_str or "INVALID_PROTOBUF" in error_str):
+                LOGGER.warning(
+                    f"VAD failed to load ({e}). Retrying with VAD disabled.")
                 segments, info = self._model.transcribe(
                     str(actual_input),
                     language=lang,
@@ -353,7 +693,8 @@ class Transcriber:
                 return f"{hh:02d}:{mm:02d}:{ss:02d}"
             return f"{mm:02d}:{ss:02d}"
 
-        LOGGER.info("Processing audio (Duration: %s)", format_timestamp(total_duration))
+        LOGGER.info("Processing audio (Duration: %s)",
+                    format_timestamp(total_duration))
         lines: List[str] = []
 
         ai_processed_duration = 0.0
@@ -368,7 +709,8 @@ class Transcriber:
             current_time_elapsed = time.time() - last_log_time
             if current_time_elapsed >= 60.0:
                 audio_progress = segment.end if hasattr(segment, 'end') else 0
-                progress_pct = (audio_progress / total_duration * 100) if total_duration > 0 else 0
+                progress_pct = (audio_progress / total_duration *
+                                100) if total_duration > 0 else 0
                 LOGGER.info("Progress: %.0f%% complete", progress_pct)
                 last_log_time = time.time()
             ai_processed_duration += (segment.end - segment.start)
@@ -404,7 +746,8 @@ class Transcriber:
         elif bs == 10:
             depth_name = "Deep Analysis (float32)"
 
-        vad_removed_duration = max(0.0, total_duration - ai_processed_duration) if vad_filter else 0.0
+        vad_removed_duration = max(
+            0.0, total_duration - ai_processed_duration) if vad_filter else 0.0
 
         report = [
             "\n\n" + "="*30,
@@ -431,8 +774,6 @@ class Transcriber:
 
         # Log the report so it shows in the GUI
         LOGGER.info(report_str)
-
-
 
         # Cleanup temp file ONLY if we created it internally
         # If pre_converted_path was passed, the caller is responsible for cleanup

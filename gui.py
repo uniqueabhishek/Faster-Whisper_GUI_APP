@@ -41,6 +41,8 @@ from transcriber import (
 )
 from workers import BatchWorker
 from styles import DARK_THEME_QSS, apply_dark_title_bar
+from session_manager import SessionManager, SessionState
+from resume_dialog import ResumeSessionDialog
 
 LOGGER = logging.getLogger(__name__)
 
@@ -167,6 +169,7 @@ class TranscriptionView(QWidget):
         self._transcriber: Optional[Transcriber] = None
         self._worker: Optional[BatchWorker] = None
         self._status_bar: Optional[QStatusBar] = None
+        self._resume_session: Optional[SessionState] = None
 
         # UI Components
         self.model_edit: QLineEdit
@@ -183,15 +186,29 @@ class TranscriptionView(QWidget):
         # Settings
         self.settings = QSettings("FasterWhisperGUI", "App")
 
+        # Session manager (lazy initialization)
+        self._session_manager: Optional[SessionManager] = None
+
         self._build_ui()
         self._setup_logging()
 
         self._load_settings()
 
+        # Check for incomplete sessions AFTER UI is built (lazy init session manager)
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(500, self._check_for_resume_session)
+
         # Add initial files to queue if provided
         if initial_files:
             for file_path in initial_files:
                 self._add_file_item(str(file_path))
+
+    @property
+    def session_manager(self) -> SessionManager:
+        """Lazy initialization of session manager."""
+        if self._session_manager is None:
+            self._session_manager = SessionManager()
+        return self._session_manager
 
     def set_status_bar(self, status_bar: QStatusBar) -> None:
         """Set the status bar for this view (called by parent window)."""
@@ -497,6 +514,57 @@ class TranscriptionView(QWidget):
         if last_output and Path(last_output).exists():
             self.output_dir_edit.setText(last_output)
 
+    def _check_for_resume_session(self) -> None:
+        """Check for incomplete sessions and prompt user to resume."""
+        try:
+            latest_session = self.session_manager.get_latest_session()
+
+            if latest_session is None:
+                return
+
+            # Show resume dialog
+            LOGGER.info("Found incomplete session: %s", latest_session.session_id)
+            resumed_session = ResumeSessionDialog.show_resume_dialog(latest_session, self)
+
+            if resumed_session:
+                # User chose to resume
+                self._resume_session = resumed_session
+                LOGGER.info("User chose to resume session")
+
+                # Load session files into queue
+                for file_status in resumed_session.pending_files + resumed_session.failed_files:
+                    self._add_file_item(file_status.path)
+
+                # Update model path from session
+                if Path(resumed_session.model_path).exists():
+                    self.model_edit.setText(resumed_session.model_path)
+
+                # Update output directory
+                if resumed_session.output_dir:
+                    self.output_dir_edit.setText(resumed_session.output_dir)
+
+                # Show status message
+                if self.statusBar():
+                    pending_count = len(resumed_session.pending_files) + len(resumed_session.failed_files)
+                    self.statusBar().showMessage(
+                        f"Session resumed: {pending_count} files to process"
+                    )
+
+                # Highlight the start button to draw attention
+                self.start_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #3b82f6;
+                        color: white;
+                        font-weight: bold;
+                        border: 2px solid #60a5fa;
+                    }
+                """)
+            else:
+                LOGGER.info("User chose to discard session")
+
+        except Exception as e:
+            LOGGER.error("Error checking for resume session: %s", e)
+
     # ---------------------------------------------------------
     # EVENTS
     # ---------------------------------------------------------
@@ -746,8 +814,12 @@ class TranscriptionView(QWidget):
             patience=patience,
             add_timestamps=add_timestamps,
             add_report=add_report,
+            resume_session=self._resume_session,  # Pass resume session if exists
         )
         self._worker = worker
+
+        # Clear resume session after starting (prevent reuse)
+        self._resume_session = None
 
         worker.progress.connect(self.on_progress)
         # worker.speed.connect(self.on_speed_update) # Removed
